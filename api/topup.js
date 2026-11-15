@@ -21,6 +21,8 @@ const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/+$/, ''); // เช่น https://ชื่อเว็บ.onrender.com
+// ส่วนลดของยศ Reseller (เปอร์เซ็นต์) ปรับได้ด้วยตัวแปร RESELLER_DISCOUNT ใน Render
+const DISCOUNT_PCT = Math.min(90, Math.max(0, Number(process.env.RESELLER_DISCOUNT ?? 10) || 0));
 const AUTH_ON = !!(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET && SESSION_SECRET && BASE_URL);
 const REDIRECT_URI = BASE_URL + '/auth/discord/callback';
 const IS_HTTPS = BASE_URL.startsWith('https://');
@@ -87,6 +89,34 @@ const GAMES = {
     }
 };
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
+// ---------- แพ็กเกจ: ตารางใน GAMES.*.packages ด้านบนใช้เป็นค่าตั้งต้นครั้งแรกเท่านั้น หลังจากนั้นแก้ได้จากหน้า Admin ----------
+const SEED_META = {
+    '210 คูปอง (105*2)': { note: '105 × 2' },
+    '700 คูปอง': { tag: 'ราคาต่อคูปองต่ำสุด' },
+    '5000 Robux': { tag: 'ถูกที่สุดต่อ Robux' }
+};
+function seedList() {
+    const out = [];
+    for (const [gk, g] of Object.entries(GAMES)) {
+        Object.entries(g.packages).forEach(([name, price], i) => {
+            out.push({ game: gk, name, qty: parseInt(name, 10) || 1, price, sort: i, ...(SEED_META[name] || {}) });
+        });
+    }
+    return out;
+}
+let PKG = {}; // { opm: [แพ็กเกจที่เปิดขาย...], roblox: [...] }
+async function loadPackages() {
+    const all = await db.listPackages();
+    const next = {};
+    for (const p of all) if (p.active) (next[p.game] = next[p.game] || []).push(p);
+    PKG = next;
+}
+const findPackage = (gameKey, name) => (PKG[gameKey] || []).find(p => p.name === name) || null;
+
+// ราคาตามยศ: Reseller ลด DISCOUNT_PCT% (ปัดเป็นบาทเต็ม) ใช้กับแพ็กเกจเกมเท่านั้น ไม่ใช้กับการเติมเงินเข้าบัญชี
+const priceFor = (user, base) => (user && user.role === 'reseller' && DISCOUNT_PCT > 0)
+    ? Math.max(1, Math.round(base * (100 - DISCOUNT_PCT) / 100)) : base;
 // ================================================================
 
 // ---------- ออเดอร์: เก็บใน Turso (โหลดเข้าหน่วยความจำตอนเริ่มเซิร์ฟเวอร์) ----------
@@ -171,7 +201,7 @@ function buildMessage(o) {
             ...(o.userId && gameKey !== 'points' ? [{ name: '🔗 บัญชีเว็บ', value: `<@${o.userId}>`, inline: true }] : []),
             { name: '📘 Facebook', value: o.facebook || '-', inline: false },
             { name: '📦 แพ็กเกจ', value: o.packageName, inline: true },
-            { name: '💰 ยอดที่ต้องได้รับ', value: `**${o.price.toLocaleString('en-US')} บาท**`, inline: true },
+            { name: '💰 ยอดที่ต้องได้รับ', value: `**${o.price.toLocaleString('en-US')} บาท**` + (o.basePrice && o.basePrice !== o.price ? `\n🏷️ ส่วนลด Reseller ${o.discountPct}% (ราคาปกติ ${o.basePrice.toLocaleString('en-US')})` : ''), inline: true },
             { name: '💳 ชำระเงินด้วย', value: payText(o), inline: false }
         )
         .setFooter({ text: o.handledBy ? `ล่าสุดโดย ${o.handledBy}` : 'รอแอดมินดำเนินการ' })
@@ -210,7 +240,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (prefix !== 'order') return;
 
         if (ADMIN_IDS.length && !ADMIN_IDS.includes(interaction.user.id)) {
-            return interaction.reply({ content: 'คุณไม่มีสิทธิ์กดปุ่มนี้', flags: MessageFlags.Ephemeral });
+            const du = await db.getUser(interaction.user.id).catch(() => null); // แอดมินที่ตั้งยศในหน้าเว็บ กดปุ่มได้ด้วย
+            if (!du || du.role !== 'admin') {
+                return interaction.reply({ content: 'คุณไม่มีสิทธิ์กดปุ่มนี้', flags: MessageFlags.Ephemeral });
+            }
         }
 
         const order = orders[id];
@@ -337,20 +370,24 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
     // ราคามาจากฝั่งเซิร์ฟเวอร์เท่านั้น ไม่เชื่อค่า expectedPrice ที่ลูกค้าส่งมา
     let packageName = '';
     let price = 0;
+    let basePrice = 0;
     if (game.custom) {
         const amount = Number(req.body.amount);
         if (!Number.isInteger(amount) || amount < game.custom.min || amount > game.custom.max) {
             return res.status(400).json({ success: false, message: `กรุณากรอกจำนวนเงินเป็นจำนวนเต็ม ${game.custom.min} - ${game.custom.max.toLocaleString('en-US')} บาท` });
         }
         price = amount;
+        basePrice = amount;
         packageName = game.custom.label(amount);
     } else {
         packageName = clean(req.body.packageName, 100);
         if (packageName) {
-            if (!hasOwn(game.packages, packageName)) {
-                return res.status(400).json({ success: false, message: 'แพ็กเกจไม่ถูกต้อง' });
+            const pkg = findPackage(gameKey, packageName);
+            if (!pkg) {
+                return res.status(400).json({ success: false, message: 'แพ็กเกจไม่ถูกต้อง หรือถูกปิดขายแล้ว กรุณารีเฟรชหน้าเว็บ' });
             }
-            price = game.packages[packageName];
+            basePrice = pkg.price;
+            price = priceFor(user, pkg.price);
         }
     }
 
@@ -385,7 +422,7 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
 
     const id = crypto.randomBytes(12).toString('hex');
     const now = Date.now();
-    const order = { id, game: gameKey, ...(user ? { userId: user.id, userName: user.name } : {}), ...data, facebook, packageName, price, payMethod, ...(voucherCode ? { voucherCode } : {}), status: 'checking', createdAt: now, updatedAt: now };
+    const order = { id, game: gameKey, ...(user ? { userId: user.id, userName: user.name } : {}), ...data, facebook, packageName, price, ...(basePrice !== price ? { basePrice, discountPct: DISCOUNT_PCT } : {}), payMethod, ...(voucherCode ? { voucherCode } : {}), status: 'checking', createdAt: now, updatedAt: now };
     if (dupOf) order.dupOf = dupOf.id;
 
     // เก็บก่อนส่ง Discord ถ้าส่งไม่ผ่านค่อยลบทิ้ง
@@ -447,9 +484,11 @@ function setCookie(res, name, value, maxAgeSec) {
 }
 async function getSessionUser(req) {
     const s = readToken(parseCookies(req).session);
-    return s ? db.getUser(s.id) : null;
+    if (!s) return null;
+    const u = await db.getUser(s.id);
+    if (u && ADMIN_IDS.includes(u.id)) u.role = 'admin'; // คนที่อยู่ใน ADMIN_USER_IDS เป็นแอดมินเสมอ (กันล็อกตัวเองออก)
+    return u;
 }
-const isAdminId = (id) => ADMIN_IDS.includes(id);
 const avatarUrl = (u) => (u.avatar && /^[a-z0-9_]+$/i.test(u.avatar))
     ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=64` : null;
 
@@ -498,7 +537,7 @@ app.get('/api/me', async (req, res) => {
     try {
         const u = await getSessionUser(req);
         if (!u) return res.json({ success: true, authEnabled: AUTH_ON, user: null });
-        return res.json({ success: true, authEnabled: AUTH_ON, user: { id: u.id, name: u.name, avatarUrl: avatarUrl(u), points: u.points, isAdmin: isAdminId(u.id) } });
+        return res.json({ success: true, authEnabled: AUTH_ON, user: { id: u.id, name: u.name, avatarUrl: avatarUrl(u), points: u.points, role: u.role, isAdmin: u.role === 'admin', discountPct: u.role === 'reseller' ? DISCOUNT_PCT : 0 } });
     } catch (e) {
         console.error('/api/me ผิดพลาด:', e.message);
         return res.json({ success: true, authEnabled: AUTH_ON, user: null });
@@ -526,6 +565,144 @@ app.get('/api/me/history', statusLimiter, async (req, res) => {
     }
 });
 
+// รายการแพ็กเกจที่เปิดขาย (ราคาตามยศของคนที่ล็อกอินอยู่)
+app.get('/api/packages', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    let user = null;
+    try { user = await getSessionUser(req); } catch (e) { /* ถือว่าไม่ได้ล็อกอิน */ }
+    const out = {};
+    for (const gk of Object.keys(GAMES)) {
+        if (GAMES[gk].custom) continue; // เติม Point กรอกจำนวนเอง ไม่มีแพ็กเกจ
+        out[gk] = (PKG[gk] || []).map(p => ({ name: p.name, qty: p.qty, price: priceFor(user, p.price), basePrice: p.price, note: p.note, tag: p.tag }));
+    }
+    res.json({ success: true, packages: out, discountPct: user && user.role === 'reseller' ? DISCOUNT_PCT : 0 });
+});
+
+// ---------- API หลังบ้านสำหรับแอดมิน (ต้องมียศ admin) ----------
+const adminLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false,
+    message: { success: false, message: 'ส่งคำขอบ่อยเกินไป กรุณารอสักครู่' }
+});
+const admin = express.Router();
+admin.use(adminLimiter, async (req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const u = await getSessionUser(req);
+        if (!u) return res.status(401).json({ success: false, message: 'กรุณาเข้าสู่ระบบ' });
+        if (u.role !== 'admin') return res.status(403).json({ success: false, message: 'ไม่มีสิทธิ์เข้าถึง' });
+        req.admin = u;
+        next();
+    } catch (e) {
+        console.error('ตรวจสิทธิ์แอดมินไม่สำเร็จ:', e.message);
+        res.status(500).json({ success: false, message: 'เกิดข้อผิดพลาด' });
+    }
+});
+const USER_ID_RE = /^\d{5,25}$/;
+const fail = (res, msg, code = 400) => res.status(code).json({ success: false, message: msg });
+const wrap = (fn) => (req, res) => fn(req, res).catch(e => { console.error('admin api:', e.message); fail(res, 'เกิดข้อผิดพลาดในระบบ', 500); });
+
+admin.get('/me', (req, res) => res.json({ success: true, name: req.admin.name, id: req.admin.id, discountPct: DISCOUNT_PCT }));
+
+admin.get('/users', wrap(async (req, res) => {
+    const users = await db.listUsers(clean(req.query.q, 60), 50);
+    res.json({ success: true, users: users.map(u => ({ ...u, role: ADMIN_IDS.includes(u.id) ? 'admin' : u.role, avatarUrl: avatarUrl(u), locked: ADMIN_IDS.includes(u.id) })) });
+}));
+
+admin.get('/users/:id', wrap(async (req, res) => {
+    if (!USER_ID_RE.test(req.params.id)) return fail(res, 'Discord ID ไม่ถูกต้อง');
+    const u = await db.getUser(req.params.id);
+    if (!u) return fail(res, 'ไม่พบผู้ใช้ (ต้องเคยล็อกอินเข้าเว็บอย่างน้อย 1 ครั้ง)', 404);
+    const mine = Object.values(orders).filter(o => o.userId === u.id).sort((a, b) => b.createdAt - a.createdAt).slice(0, 20)
+        .map(o => ({ id: o.id, game: o.game || 'opm', packageName: o.packageName, price: o.price, payMethod: o.payMethod || 'voucher', status: o.status, createdAt: o.createdAt }));
+    res.json({ success: true, user: { ...u, role: ADMIN_IDS.includes(u.id) ? 'admin' : u.role, avatarUrl: avatarUrl(u), locked: ADMIN_IDS.includes(u.id) }, ledger: await db.getLedger(u.id, 30), orders: mine });
+}));
+
+// เพิ่ม/หัก Point (delta บวก = เพิ่ม, ลบ = หัก) ต้องใส่เหตุผลเสมอ และบันทึกลง ledger
+admin.post('/users/:id/points', wrap(async (req, res) => {
+    if (!USER_ID_RE.test(req.params.id)) return fail(res, 'Discord ID ไม่ถูกต้อง');
+    const delta = Number(req.body.delta);
+    const reason = clean(req.body.reason, 200);
+    if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 10000000) return fail(res, 'จำนวนต้องเป็นจำนวนเต็มที่ไม่ใช่ 0 (ไม่เกิน 10,000,000)');
+    if (!reason) return fail(res, 'กรุณาใส่เหตุผล');
+    if (!(await db.getUser(req.params.id))) return fail(res, 'ไม่พบผู้ใช้', 404);
+    const r = await db.adjustPoints(req.params.id, delta, 'admin', null, reason, req.admin.name);
+    if (r.insufficient) return fail(res, 'ยอดในบัญชีไม่พอให้หัก');
+    await db.logAdmin(`${req.admin.name} (${req.admin.id})`, delta > 0 ? 'เพิ่มเงิน' : 'หักเงิน', `ผู้ใช้ ${req.params.id}: ${delta > 0 ? '+' : ''}${delta} บาท เหตุผล: ${reason} (คงเหลือ ${r.balance})`);
+    res.json({ success: true, balance: r.balance });
+}));
+
+admin.post('/users/:id/role', wrap(async (req, res) => {
+    const id = req.params.id, role = clean(req.body.role, 20);
+    if (!USER_ID_RE.test(id)) return fail(res, 'Discord ID ไม่ถูกต้อง');
+    if (!db.ROLES.includes(role)) return fail(res, 'ยศไม่ถูกต้อง');
+    if (id === req.admin.id) return fail(res, 'ไม่สามารถเปลี่ยนยศของตัวเองได้');
+    if (ADMIN_IDS.includes(id)) return fail(res, 'บัญชีนี้ถูกล็อกเป็นแอดมินใน ADMIN_USER_IDS แก้ได้ที่ Render เท่านั้น');
+    if (!(await db.setRole(id, role))) return fail(res, 'ไม่พบผู้ใช้', 404);
+    await db.logAdmin(`${req.admin.name} (${req.admin.id})`, 'เปลี่ยนยศ', `ผู้ใช้ ${id} -> ${role}`);
+    res.json({ success: true });
+}));
+
+admin.get('/orders', wrap(async (req, res) => {
+    const status = clean(req.query.status, 20), q = clean(req.query.q, 60).toLowerCase();
+    const list = Object.values(orders)
+        .filter(o => !status || o.status === status)
+        .filter(o => !q || [o.id.slice(-6), o.userName, o.userId, o.packageName, o.uid, o.username, o.ign, o.displayName].some(v => v && String(v).toLowerCase().includes(q)))
+        .sort((a, b) => b.createdAt - a.createdAt).slice(0, 100)
+        .map(o => ({ id: o.id, game: o.game || 'opm', userName: o.userName || '', userId: o.userId || '', packageName: o.packageName, price: o.price, basePrice: o.basePrice || 0, payMethod: o.payMethod || 'voucher', status: o.status, paid: !!o.paid, handledBy: o.handledBy || '', createdAt: o.createdAt }));
+    res.json({ success: true, orders: list });
+}));
+
+// แพ็กเกจ (รวมที่ปิดขายอยู่) แก้ราคา/เพิ่ม/ลบได้ ราคาในตารางคือราคาปกติ ก่อนลด Reseller
+admin.get('/packages', wrap(async (req, res) => {
+    res.json({ success: true, packages: await db.listPackages(), discountPct: DISCOUNT_PCT });
+}));
+
+function readPackage(body) {
+    const game = clean(body.game, 20);
+    if (!hasOwn(GAMES, game) || GAMES[game].custom) return { error: 'เกมไม่ถูกต้อง' };
+    const name = clean(body.name, 100);
+    const qty = Number(body.qty), price = Number(body.price), sort = Number(body.sort ?? 0);
+    if (!name) return { error: 'กรุณาใส่ชื่อแพ็กเกจ' };
+    if (!Number.isInteger(qty) || qty < 1 || qty > 10000000) return { error: 'จำนวน (qty) ต้องเป็นจำนวนเต็ม 1 ขึ้นไป' };
+    if (!Number.isInteger(price) || price < 1 || price > 1000000) return { error: 'ราคาต้องเป็นจำนวนเต็ม 1 - 1,000,000 บาท' };
+    if (!Number.isInteger(sort)) return { error: 'ลำดับไม่ถูกต้อง' };
+    return { pkg: { game, name, qty, price, sort, note: clean(body.note, 40), tag: clean(body.tag, 40), active: body.active !== false } };
+}
+async function savePackageAs(req, res, id) {
+    const r = readPackage(req.body);
+    if (r.error) return fail(res, r.error);
+    try {
+        await db.savePackage({ ...r.pkg, id });
+    } catch (e) {
+        if (/unique/i.test(String(e.message))) return fail(res, 'มีแพ็กเกจชื่อนี้ในเกมนี้อยู่แล้ว');
+        throw e;
+    }
+    await loadPackages();
+    await db.logAdmin(`${req.admin.name} (${req.admin.id})`, id ? 'แก้แพ็กเกจ' : 'เพิ่มแพ็กเกจ', `${r.pkg.game} / ${r.pkg.name} / ราคา ${r.pkg.price} / ${r.pkg.active ? 'เปิดขาย' : 'ปิดขาย'}`);
+    res.json({ success: true });
+}
+admin.post('/packages', wrap((req, res) => savePackageAs(req, res, null)));
+admin.post('/packages/:id', wrap((req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return fail(res, 'ไม่พบแพ็กเกจ');
+    return savePackageAs(req, res, id);
+}));
+admin.post('/packages/:id/delete', wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return fail(res, 'ไม่พบแพ็กเกจ');
+    const before = (await db.listPackages()).find(p => p.id === id);
+    if (!before) return fail(res, 'ไม่พบแพ็กเกจ', 404);
+    await db.deletePackage(id);
+    await loadPackages();
+    await db.logAdmin(`${req.admin.name} (${req.admin.id})`, 'ลบแพ็กเกจ', `${before.game} / ${before.name} / ราคา ${before.price}`);
+    res.json({ success: true });
+}));
+
+admin.get('/log', wrap(async (req, res) => {
+    res.json({ success: true, log: await db.getAdminLog(80) });
+}));
+app.use('/api/admin', admin);
+
 // หน้าเว็บเช็กสถานะออเดอร์ (ส่งกลับเฉพาะข้อมูลที่ลูกค้าควรเห็น ไม่ส่งลิงก์ซอง)
 app.get('/api/order/:id', statusLimiter, (req, res) => {
     res.set('Cache-Control', 'no-store');
@@ -546,6 +723,9 @@ app.get('/api/order/:id', statusLimiter, (req, res) => {
     try {
         await db.initDb();
         orders = await db.loadOrders();
+        const seeded = await db.seedPackages(seedList());
+        if (seeded) console.log(`ใส่แพ็กเกจตั้งต้นลงฐานข้อมูล ${seeded} รายการ`);
+        await loadPackages();
         await importLegacyOrders();
         console.log(`โหลดออเดอร์จากฐานข้อมูล ${Object.keys(orders).length} รายการ | ล็อกอิน Discord: ${AUTH_ON ? 'เปิด' : 'ปิด (ยังไม่ตั้งค่า)'}`);
     } catch (e) {
