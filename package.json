@@ -3,9 +3,10 @@
   "version": "1.0.0",
   "main": "topup.js",
   "scripts": {
-    "start": "node api/topup.js"
+    "start": "node topup.js"
   },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "axios": "^1.21.1",
     "cors": "^2.8.5",
     "discord.js": "^14.28.1",
