@@ -81,15 +81,9 @@ const GAMES = {
         name: 'เติม Point',
         requireLogin: true,
         fields: [],
-        packages: {
-            '50 Point': 50,
-            '100 Point': 100,
-            '200 Point': 200,
-            '300 Point': 300,
-            '500 Point': 500,
-            '1000 Point': 1000,
-            '2000 Point': 2000
-        }
+        packages: {},
+        // กรอกจำนวนเองได้ (1 Point = 1 บาท) ราคา = จำนวนที่กรอก
+        custom: { min: 10, max: 20000, label: (n) => `${n} Point` }
     }
 };
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
@@ -145,6 +139,13 @@ const STATUS = {
     insufficient: { color: 0xED4245, text: '⚠️ ยอดเงินไม่เพียงพอ' }
 };
 
+function payText(o) {
+    if (o.payMethod !== 'balance') return '🎟️ ลิงก์ซองอั่งเปา TrueMoney';
+    if (o.refunded) return '👛 เงินในบัญชี (คืนเงินแล้ว ↩️)';
+    if (o.paid) return '👛 เงินในบัญชี (หักเงินแล้ว ✅)';
+    return '👛 **เงินในบัญชี** (ยังไม่หักเงิน จะหักเมื่อกด "รับเงิน")';
+}
+
 function buildMessage(o) {
     const s = STATUS[o.status];
     const gameKey = GAMES[o.game] ? o.game : 'opm'; // ออเดอร์เก่าที่ไม่มี game = One Punch Man
@@ -170,7 +171,8 @@ function buildMessage(o) {
             ...(o.userId && gameKey !== 'points' ? [{ name: '🔗 บัญชีเว็บ', value: `<@${o.userId}>`, inline: true }] : []),
             { name: '📘 Facebook', value: o.facebook || '-', inline: false },
             { name: '📦 แพ็กเกจ', value: o.packageName, inline: true },
-            { name: '💰 ยอดที่ต้องได้รับ', value: `**${o.price.toLocaleString('en-US')} บาท**`, inline: true }
+            { name: '💰 ยอดที่ต้องได้รับ', value: `**${o.price.toLocaleString('en-US')} บาท**`, inline: true },
+            { name: '💳 ชำระเงินด้วย', value: payText(o), inline: false }
         )
         .setFooter({ text: o.handledBy ? `ล่าสุดโดย ${o.handledBy}` : 'รอแอดมินดำเนินการ' })
         .setTimestamp(new Date(o.updatedAt));
@@ -180,7 +182,7 @@ function buildMessage(o) {
     }
 
     // แสดงลิงก์ซองเฉพาะตอนยังรอตรวจสอบ (หลังรับซองแล้วลิงก์ใช้ไม่ได้อยู่แล้ว)
-    if (o.status === 'checking') {
+    if (o.status === 'checking' && o.voucherCode) {
         embed.addFields({ name: '🎟️ ลิงก์ซอง', value: voucherUrl(o.voucherCode), inline: false });
     }
 
@@ -192,7 +194,7 @@ function buildMessage(o) {
         new ButtonBuilder().setCustomId(`order:${o.id}:insufficient`).setLabel('ยอดไม่ครบ')
             .setStyle(ButtonStyle.Danger).setDisabled(isFinal(o.status))
     );
-    if (o.status === 'checking') {
+    if (o.status === 'checking' && o.voucherCode) {
         row.addComponents(
             new ButtonBuilder().setLabel('เปิดซอง').setStyle(ButtonStyle.Link).setURL(voucherUrl(o.voucherCode))
         );
@@ -235,6 +237,35 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return interaction.followUp({ content: 'เพิ่ม Point ไม่สำเร็จ (ยังไม่มีอะไรเปลี่ยน) กรุณากดใหม่อีกครั้ง', flags: MessageFlags.Ephemeral });
             }
             order.status = 'done';
+            order.updatedAt = Date.now();
+            order.handledBy = handler;
+            await db.saveOrder(order).catch(e => console.error('บันทึกออเดอร์ไม่สำเร็จ:', e.message));
+            return interaction.editReply(buildMessage(order));
+        }
+
+        // ออเดอร์จ่ายด้วยเงินในบัญชี: หักเงินตอนแอดมินกด "รับเงิน" (หรือ "เสร็จสิ้น" ถ้าข้ามขั้น) หักได้ครั้งเดียวต่อออเดอร์
+        // กด "ยอดไม่ครบ" = ไม่หัก (ถ้าเคยหักไปแล้วจะคืนให้)
+        if (order.payMethod === 'balance') {
+            await interaction.deferUpdate();
+            const tag = `#${order.id.slice(-6).toUpperCase()}`;
+            try {
+                if (action !== 'insufficient' && !order.paid) {
+                    const r = await db.adjustPoints(order.userId, -order.price, 'purchase', `order:${order.id}:pay`,
+                        `ซื้อ ${order.packageName} (${GAMES[order.game] ? GAMES[order.game].name : order.game}) ออเดอร์ ${tag}`, handler);
+                    if (r.insufficient) {
+                        return interaction.followUp({ content: `ยอดเงินในบัญชีลูกค้าไม่พอสำหรับออเดอร์ ${tag} (ยังไม่หักเงิน สถานะไม่เปลี่ยน) กด "ยอดไม่ครบ" เพื่อปิดออเดอร์ได้`, flags: MessageFlags.Ephemeral });
+                    }
+                    order.paid = true;
+                } else if (action === 'insufficient' && order.paid && !order.refunded) {
+                    await db.adjustPoints(order.userId, order.price, 'refund', `order:${order.id}:refund`,
+                        `คืนเงินออเดอร์ ${tag} (ยกเลิกโดยแอดมิน)`, handler);
+                    order.refunded = true;
+                }
+            } catch (e) {
+                console.error('ปรับยอดเงินในบัญชีไม่สำเร็จ:', e.message);
+                return interaction.followUp({ content: 'ปรับยอดเงินในบัญชีไม่สำเร็จ (สถานะไม่เปลี่ยน) กรุณากดใหม่อีกครั้ง', flags: MessageFlags.Ephemeral });
+            }
+            order.status = action;
             order.updatedAt = Date.now();
             order.handledBy = handler;
             await db.saveOrder(order).catch(e => console.error('บันทึกออเดอร์ไม่สำเร็จ:', e.message));
@@ -295,34 +326,66 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
         data[f.key] = v;
     }
     const facebook = clean(req.body.facebook, 200);
-    const packageName = clean(req.body.packageName, 100);
     const voucherLink = clean(req.body.voucherLink, 300);
+    // วิธีชำระเงิน: voucher = ลิงก์ซองอั่งเปา | balance = เงินในบัญชีเว็บ (ไม่หักตอนสั่ง จะหักตอนแอดมินกด "รับเงิน")
+    const payMethod = clean(req.body.payMethod, 10) === 'balance' ? 'balance' : 'voucher';
+    if (payMethod === 'balance') {
+        if (!user) return res.status(401).json({ success: false, needLogin: true, message: 'กรุณาเข้าสู่ระบบก่อนชำระด้วยเงินในบัญชี' });
+        if (gameKey === 'points') return res.status(400).json({ success: false, message: 'การเติมเงินเข้าบัญชีต้องชำระด้วยซองอั่งเปาเท่านั้น' });
+    }
 
-    if (game.fields.some(f => !data[f.key]) || !facebook || !packageName || !voucherLink) {
-        return res.status(400).json({ success: false, message: 'กรุณากรอกข้อมูลบัญชีเกม, Facebook, แพ็กเกจ และลิงก์ซอง ให้ครบถ้วน' });
+    // ราคามาจากฝั่งเซิร์ฟเวอร์เท่านั้น ไม่เชื่อค่า expectedPrice ที่ลูกค้าส่งมา
+    let packageName = '';
+    let price = 0;
+    if (game.custom) {
+        const amount = Number(req.body.amount);
+        if (!Number.isInteger(amount) || amount < game.custom.min || amount > game.custom.max) {
+            return res.status(400).json({ success: false, message: `กรุณากรอกจำนวนเงินเป็นจำนวนเต็ม ${game.custom.min} - ${game.custom.max.toLocaleString('en-US')} บาท` });
+        }
+        price = amount;
+        packageName = game.custom.label(amount);
+    } else {
+        packageName = clean(req.body.packageName, 100);
+        if (packageName) {
+            if (!hasOwn(game.packages, packageName)) {
+                return res.status(400).json({ success: false, message: 'แพ็กเกจไม่ถูกต้อง' });
+            }
+            price = game.packages[packageName];
+        }
+    }
+
+    if (game.fields.some(f => !data[f.key]) || !facebook || !packageName || (payMethod === 'voucher' && !voucherLink)) {
+        return res.status(400).json({ success: false, message: payMethod === 'voucher'
+            ? 'กรุณากรอกข้อมูลบัญชีเกม, Facebook, แพ็กเกจ และลิงก์ซอง ให้ครบถ้วน'
+            : 'กรุณากรอกข้อมูลบัญชีเกม, Facebook และแพ็กเกจ ให้ครบถ้วน' });
     }
     const badField = game.fields.find(f => f.test && !f.test(data[f.key]));
     if (badField) {
         return res.status(400).json({ success: false, message: badField.error });
     }
 
-    // ราคามาจากตารางฝั่งเซิร์ฟเวอร์ ไม่เชื่อค่า expectedPrice ที่ลูกค้าส่งมา
-    if (!hasOwn(game.packages, packageName)) {
-        return res.status(400).json({ success: false, message: 'แพ็กเกจไม่ถูกต้อง' });
+    let voucherCode = null;
+    let dupOf = null;
+    if (payMethod === 'voucher') {
+        voucherCode = parseVoucher(voucherLink);
+        if (!voucherCode) {
+            return res.status(400).json({ success: false, message: 'ลิงก์ซองไม่ถูกต้อง ต้องเป็นลิงก์จาก gift.truemoney.com' });
+        }
+        // ส่งลิงก์ซองเดิมซ้ำได้ ไม่ปฏิเสธ แต่จะมีคำเตือนในข้อความ Discord ให้แอดมินเห็น
+        dupOf = Object.values(orders).find(o => o.voucherCode === voucherCode) || null;
+    } else {
+        // ยังไม่หักเงิน แต่กันสั่งเกินยอด: ยอดที่ใช้ได้ = ยอดคงเหลือ - ออเดอร์เงินในบัญชีอื่นที่ยังรอแอดมิน
+        const pending = Object.values(orders)
+            .filter(o => o.userId === user.id && o.payMethod === 'balance' && !o.paid && !isFinal(o.status))
+            .reduce((sum, o) => sum + o.price, 0);
+        if (price > user.points - pending) {
+            return res.status(400).json({ success: false, message: `ยอดเงินในบัญชีไม่พอ (คงเหลือ ${user.points.toLocaleString('en-US')} บาท${pending ? `, มีออเดอร์รอดำเนินการ ${pending.toLocaleString('en-US')} บาท` : ''})` });
+        }
     }
-    const price = game.packages[packageName];
-
-    const voucherCode = parseVoucher(voucherLink);
-    if (!voucherCode) {
-        return res.status(400).json({ success: false, message: 'ลิงก์ซองไม่ถูกต้อง ต้องเป็นลิงก์จาก gift.truemoney.com' });
-    }
-
-    // ส่งลิงก์ซองเดิมซ้ำได้ ไม่ปฏิเสธ แต่จะมีคำเตือนในข้อความ Discord ให้แอดมินเห็น
-    const dupOf = Object.values(orders).find(o => o.voucherCode === voucherCode);
 
     const id = crypto.randomBytes(12).toString('hex');
     const now = Date.now();
-    const order = { id, game: gameKey, ...(user ? { userId: user.id, userName: user.name } : {}), ...data, facebook, packageName, price, voucherCode, status: 'checking', createdAt: now, updatedAt: now };
+    const order = { id, game: gameKey, ...(user ? { userId: user.id, userName: user.name } : {}), ...data, facebook, packageName, price, payMethod, ...(voucherCode ? { voucherCode } : {}), status: 'checking', createdAt: now, updatedAt: now };
     if (dupOf) order.dupOf = dupOf.id;
 
     // เก็บก่อนส่ง Discord ถ้าส่งไม่ผ่านค่อยลบทิ้ง
@@ -337,13 +400,13 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
         delete orders[id];
         db.deleteOrder(id).catch(() => {});
         console.error('ส่งออเดอร์เข้า Discord ไม่สำเร็จ:', e.message);
-        return res.status(502).json({ success: false, message: 'ระบบแจ้งเตือนแอดมินขัดข้อง กรุณาลองใหม่อีกครั้ง (ซองของคุณยังไม่ถูกใช้)' });
+        return res.status(502).json({ success: false, message: payMethod === 'balance' ? 'ระบบแจ้งเตือนแอดมินขัดข้อง กรุณาลองใหม่อีกครั้ง (ยังไม่มีการหักเงินในบัญชี)' : 'ระบบแจ้งเตือนแอดมินขัดข้อง กรุณาลองใหม่อีกครั้ง (ซองของคุณยังไม่ถูกใช้)' });
     }
 
     return res.json({
         success: true,
         orderId: id,
-        message: 'ส่งออเดอร์แล้ว กำลังตรวจสอบลิงก์ซอง'
+        message: payMethod === 'balance' ? 'ส่งออเดอร์แล้ว รอแอดมินตรวจสอบ' : 'ส่งออเดอร์แล้ว กำลังตรวจสอบลิงก์ซอง'
     });
 });
 
@@ -449,7 +512,7 @@ app.get('/api/me/history', statusLimiter, async (req, res) => {
         const u = await getSessionUser(req);
         if (!u) return res.status(401).json({ success: false, message: 'กรุณาเข้าสู่ระบบ' });
         const mine = Object.values(orders).filter(o => o.userId === u.id).sort((a, b) => b.createdAt - a.createdAt);
-        const view = (o) => ({ id: o.id, game: o.game || 'opm', packageName: o.packageName, price: o.price, status: o.status, createdAt: o.createdAt });
+        const view = (o) => ({ id: o.id, game: o.game || 'opm', payMethod: o.payMethod || 'voucher', packageName: o.packageName, price: o.price, status: o.status, createdAt: o.createdAt });
         return res.json({
             success: true,
             points: u.points,
@@ -472,6 +535,7 @@ app.get('/api/order/:id', statusLimiter, (req, res) => {
         success: true,
         status: order.status,
         game: order.game || 'opm',
+        payMethod: order.payMethod || 'voucher',
         packageName: order.packageName,
         price: order.price,
         updatedAt: order.updatedAt
