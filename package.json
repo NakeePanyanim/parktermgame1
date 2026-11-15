@@ -1,0 +1,50 @@
+{
+  "name": "park-termgame-truemoney",
+  "version": "1.0.0",
+  "main": "topup.js",
+  "scripts": {
+    "start": "node topup.js"
+  },
+  "dependencies": {
+    "axios": "^1.21.1",
+    "cors": "^2.8.5",
+    "discord.js": "^14.28.1",
+    "dotenv": "^18.0.10",
+    "express": "^4.22.3",
+    "express-rate-limit": "^8.7.4"
+  }
+}
+```[cite: 11]
+
+---
+
+### 2. สิ่งที่คุณต้องเตรียมในคอมพิวเตอร์ก่อนอัปขึ้น GitHub:
+ในโฟลเดอร์โปรเจกต์ของคุณตอนนี้ ให้จัดระเบียบไฟล์ดังนี้:
+* `topup.js` (วางไว้ที่หน้าแรกของโฟลเดอร์ ไม่ต้องเอาไปใส่ในโฟลเดอร์ `api` แล้วนะครับ เพราะอันนี้รันด้วย Express ตรงๆ)
+* `package.json` (ใช้โค้ดด้านบนที่อัปเดตแล้ว)
+* โฟลเดอร์ `public/index.html` (หน้าเว็บร้านค้าของคุณ)
+* **ห้ามอัปไฟล์ `.env` ขึ้น GitHub เด็ดขาด** (ให้เก็บค่า Token ไว้ใส่ในหน้าเว็บ Render ตอนตั้งค่าตัวแปรแทน)
+
+---
+
+### 3. วิธีเอาขึ้น Render.com (รันบอทและเว็บตลอด 24 ชม.):
+
+1. อัปเดตโค้ดทั้งหมด (ยกเว้น `.env`) ขึ้น **GitHub** ของคุณตามปกติ
+2. ไปที่เว็บ [Render.com](https://render.com/) แล้วกด **New +** -> **Web Service**
+3. เลือก Repository ของคุณแล้วกด **Connect**
+4. กรอกข้อมูลการตั้งค่า:
+   * **Name:** ตั้งชื่อโปรเจกต์ (เช่น `park-termgame`)
+   * **Region:** `Singapore`
+   * **Branch:** `main` (หรือ branch ของคุณ)
+   * **Runtime:** `Node`
+   * **Build Command:** `npm install`
+   * **Start Command:** `npm start`
+   * **Instance Type:** เลือก **Free**
+5. เลื่อนลงมาที่หัวข้อ **Environment Variables** (ตรงนี้แหละครับที่เราเอาค่าจากไฟล์ `.env` มาใส่แทน) กด Add ทีละตัว:
+   * `DISCORD_BOT_TOKEN` = `(Token บอทของคุณ)`
+   * `DISCORD_CHANNEL_ID` = `(ไอดีห้อง Discord รับออเดอร์)`
+   * `ADMIN_USER_IDS` = `(ไอดีแอดมินของคุณ)`
+   * `PORT` = `10000`
+6. กดปุ่ม **Create Web Service** ด้านล่างสุดได้เลย!
+
+พอกด Deploy เสร็จ รอ Render รันระบบสักครู่ บอท Discord จะออนไลน์พร้อมกดปุ่มได้ และหน้าเว็บร้านค้าของคุณก็จะเปิดใช้งานได้ตลอด 24 ชม. ทันทีครับ!

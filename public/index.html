@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Park Termgame - เติมคูปอง One Punch Man รับออเดอร์ 24 ชม.</title>
+<meta name="description" content="บริการเติมคูปอง One Punch Man ผ่านซองของขวัญ TrueMoney รับออเดอร์ตลอด 24 ชั่วโมง ติดตามสถานะได้ทันที">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: { extend: {
+    fontFamily: { sans: ['Prompt', 'sans-serif'] },
+    colors: { ink: '#0a0a0f', panel: '#12121a', line: '#25252f' }
+  } }
+}
+</script>
+<style>
+  html { scroll-behavior: smooth; }
+  body { font-family: 'Prompt', sans-serif; background: #0a0a0f; }
+  .bg-halftone {
+    background-image: radial-gradient(rgba(251,191,36,.10) 1.2px, transparent 1.2px);
+    background-size: 18px 18px;
+    mask-image: linear-gradient(to bottom, #000 0%, transparent 60%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 60%);
+  }
+  .grad-text { background: linear-gradient(90deg,#fde047,#fb923c,#ef4444); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .grad-btn { background: linear-gradient(90deg,#f59e0b,#ef4444); }
+  .grad-btn:hover:not(:disabled) { filter: brightness(1.1); box-shadow: 0 10px 30px -8px rgba(239,68,68,.55); }
+  .grad-btn:disabled { opacity: .45; cursor: not-allowed; }
+  .field {
+    width: 100%; background: #0c0c13; border: 1px solid #2a2a36; border-radius: .85rem;
+    padding: .8rem 1rem; font-size: .92rem; color: #fff; transition: .15s;
+  }
+  .field::placeholder { color: #5b5b6b; }
+  .field:focus { outline: none; border-color: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.15); }
+  .field.invalid { border-color: #ef4444; box-shadow: 0 0 0 3px rgba(239,68,68,.12); }
+  .pkg input:checked + .pkg-card { border-color: #f59e0b; background: linear-gradient(160deg,rgba(245,158,11,.14),rgba(239,68,68,.08)); box-shadow: 0 0 0 1px #f59e0b, 0 12px 30px -12px rgba(245,158,11,.45); }
+  .pkg input:checked + .pkg-card .pkg-check { opacity: 1; transform: scale(1); }
+  .pkg input:focus-visible + .pkg-card { outline: 2px solid #fbbf24; outline-offset: 2px; }
+  .pkg-card:hover { border-color: #4a4a5a; transform: translateY(-2px); }
+  .pkg-check { opacity: 0; transform: scale(.5); transition: .18s; }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+  details[open] .chev { transform: rotate(180deg); }
+  @keyframes pop { from { opacity: 0; transform: translateY(14px) scale(.97);} to { opacity: 1; transform: none; } }
+  .pop { animation: pop .25s ease-out; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .spinner { width: 18px; height: 18px; border: 2.5px solid rgba(255,255,255,.35); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; }
+  @keyframes pulseDot { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+  .live-dot { animation: pulseDot 1.8s ease-in-out infinite; }
+</style>
+</head>
+<body class="text-slate-100 antialiased selection:bg-amber-500 selection:text-black">
+
+<!-- Background -->
+<div class="fixed inset-0 -z-10 overflow-hidden">
+  <div class="absolute inset-0 bg-halftone"></div>
+  <div class="absolute -top-40 left-1/2 -translate-x-1/2 w-[900px] h-[500px] rounded-full bg-amber-500/10 blur-[140px]"></div>
+  <div class="absolute top-1/3 -right-40 w-[500px] h-[500px] rounded-full bg-red-600/10 blur-[140px]"></div>
+</div>
+
+<!-- Navbar -->
+<header class="sticky top-0 z-40 border-b border-white/5 bg-ink/80 backdrop-blur-xl">
+  <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+    <a href="#" class="flex items-center gap-2.5">
+      <span class="grid place-items-center w-9 h-9 rounded-xl grad-btn shadow-lg shadow-orange-600/30">
+        <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>
+      </span>
+      <span class="font-bold text-lg tracking-tight">Park <span class="grad-text">Termgame</span></span>
+    </a>
+    <nav class="hidden md:flex items-center gap-7 text-sm text-slate-400">
+      <a href="#topup" class="hover:text-white transition">เติมคูปอง</a>
+      <a href="#how" class="hover:text-white transition">วิธีเติม</a>
+      <a href="#faq" class="hover:text-white transition">คำถามที่พบบ่อย</a>
+      <a href="#contact" class="hover:text-white transition">ติดต่อเรา</a>
+    </nav>
+    <div class="flex items-center gap-2 text-xs font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-3 py-1.5">
+      <span class="live-dot w-2 h-2 rounded-full bg-emerald-400"></span> รับออเดอร์ 24 ชม.
+    </div>
+  </div>
+</header>
+
+<main class="max-w-6xl mx-auto px-4 pb-36 lg:pb-20">
+
+  <!-- Hero -->
+  <section class="pt-10 pb-8 sm:pt-14 sm:pb-10 text-center lg:text-left">
+    <div class="inline-flex items-center gap-2 text-xs font-medium text-amber-300 bg-amber-400/10 border border-amber-400/20 rounded-full px-3 py-1 mb-4">
+      ⚡ เติมผ่านซองของขวัญ TrueMoney
+    </div>
+    <h1 class="text-3xl sm:text-5xl font-extrabold tracking-tight leading-tight">
+      เติมคูปอง <span class="grad-text">One Punch Man</span><br class="hidden sm:block"> ง่าย เร็ว ติดตามสถานะได้ทันที
+    </h1>
+    <p class="mt-4 text-slate-400 max-w-xl mx-auto lg:mx-0 text-sm sm:text-base">
+      กรอก UID เลือกแพ็กเกจ ส่งลิงก์ซองของขวัญ แอดมินตรวจสอบซองและเติมให้ตามคิว พร้อมติดตามสถานะออเดอร์บนหน้านี้ได้เลย
+    </p>
+    <div class="mt-6 flex flex-wrap gap-2.5 justify-center lg:justify-start text-xs text-slate-300">
+      <span class="flex items-center gap-1.5 bg-panel border border-line rounded-full px-3 py-1.5">📦 ติดตามสถานะออเดอร์</span>
+      <span class="flex items-center gap-1.5 bg-panel border border-line rounded-full px-3 py-1.5">🕑 รับออเดอร์ 24 ชม.</span>
+      <span class="flex items-center gap-1.5 bg-panel border border-line rounded-full px-3 py-1.5">🔒 ไม่ต้องให้รหัสผ่านเกม</span>
+      <span class="flex items-center gap-1.5 bg-panel border border-line rounded-full px-3 py-1.5">💬 มีช่องทางติดต่อแอดมิน</span>
+    </div>
+  </section>
+
+  <!-- Last order bar -->
+  <div id="lastOrderBar" class="hidden mb-5">
+    <div class="flex items-center gap-3 bg-panel/90 border border-line rounded-2xl pl-4 pr-2 py-2.5">
+      <button type="button" id="lastOrderOpen" class="flex-1 min-w-0 flex items-center gap-3 text-left">
+        <span id="lastOrderIcon" class="text-xl">📦</span>
+        <span class="min-w-0">
+          <span class="block text-[11px] text-slate-500">ออเดอร์ล่าสุดของคุณ #<span id="lastOrderNo"></span></span>
+          <span id="lastOrderText" class="block text-sm font-medium truncate"></span>
+        </span>
+      </button>
+      <button type="button" id="lastOrderClear" aria-label="ซ่อนแถบนี้" class="shrink-0 w-8 h-8 rounded-lg text-slate-500 hover:text-white hover:bg-white/5 transition">✕</button>
+    </div>
+  </div>
+
+  <!-- Top-up layout -->
+  <form id="topupForm" novalidate class="grid lg:grid-cols-[1fr_380px] gap-6 items-start">
+    <div id="topup" class="space-y-5 scroll-mt-24">
+
+      <!-- Step 1 -->
+      <section class="bg-panel/80 border border-line rounded-3xl p-5 sm:p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="grid place-items-center w-8 h-8 rounded-full grad-btn text-sm font-bold text-white">1</span>
+          <div>
+            <h2 class="font-semibold">ข้อมูลบัญชีเกม</h2>
+            <p class="text-xs text-slate-500">ตรวจสอบ UID ให้ถูกต้องก่อนกดยืนยัน</p>
+          </div>
+        </div>
+        <div class="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label for="uid" class="block text-xs font-medium text-slate-300 mb-1.5">UID ผู้เล่น <span class="text-red-400">*</span></label>
+            <input type="text" id="uid" inputmode="numeric" autocomplete="off" placeholder="เช่น 996239_310001" class="field">
+            <p class="err text-xs text-red-400 mt-1 hidden" data-for="uid">กรุณากรอก UID</p>
+          </div>
+          <div>
+            <label for="sid" class="block text-xs font-medium text-slate-300 mb-1.5">SID ผู้เล่น <span class="text-red-400">*</span></label>
+            <input type="text" id="sid" inputmode="numeric" autocomplete="off" placeholder="เช่น 310001" class="field">
+          </div>
+        </div>
+	<div class="mt-3">
+          <label for="facebook" class="block text-xs font-medium text-slate-300 mb-1.5">ชื่อตัวละครในเกม <span class="text-red-400">*</span></label>
+          <input type="text" id="facebook" autocomplete="off" placeholder="เช่น ParkTermgame" class="field">
+          <p class="err text-xs text-red-400 mt-1 hidden" data-for="facebook">กรุณากรอกชื่อตัวละคร</p>
+        </div>
+        <div class="mt-3">
+          <label for="facebook" class="block text-xs font-medium text-slate-300 mb-1.5">ลิงก์ Facebook สำหรับติดต่อกลับ <span class="text-red-400">*</span></label>
+          <input type="text" id="facebook" autocomplete="off" placeholder="ลิงก์โปรไฟล์Facebook (ใช้ติดต่อกรณี UID/SID ผิด หรือยอดเงินไม่ครบ)" class="field">
+          <p class="err text-xs text-red-400 mt-1 hidden" data-for="facebook">กรุณากรอกช่องทางติดต่อกลับ</p>
+        </div>
+      </section>
+
+      <!-- Step 2 -->
+      <section class="bg-panel/80 border border-line rounded-3xl p-5 sm:p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="grid place-items-center w-8 h-8 rounded-full grad-btn text-sm font-bold text-white">2</span>
+          <div>
+            <h2 class="font-semibold">เลือกแพ็กเกจคูปอง</h2>
+            <p class="text-xs text-slate-500">ยิ่งเติมเยอะ ยิ่งคุ้ม ราคาต่อคูปองถูกลง</p>
+          </div>
+        </div>
+        <div id="packageGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-3" role="radiogroup" aria-label="แพ็กเกจคูปอง"></div>
+        <p class="err text-xs text-red-400 mt-2 hidden" data-for="package">กรุณาเลือกแพ็กเกจ</p>
+      </section>
+
+      <!-- Step 3 -->
+      <section class="bg-panel/80 border border-line rounded-3xl p-5 sm:p-6">
+        <div class="flex items-center gap-3 mb-4">
+          <span class="grid place-items-center w-8 h-8 rounded-full grad-btn text-sm font-bold text-white">3</span>
+          <div>
+            <h2 class="font-semibold">ชำระเงินด้วยซองของขวัญ TrueMoney</h2>
+            <p class="text-xs text-slate-500">สร้างซองในแอป แล้วนำลิงก์มาวางด้านล่าง</p>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-amber-400/20 bg-amber-400/5 p-4 mb-4">
+          <ol class="space-y-2.5 text-sm text-slate-300">
+            <li class="flex gap-3"><span class="shrink-0 w-5 h-5 rounded-full bg-amber-400/20 text-amber-300 text-xs grid place-items-center font-semibold">1</span><span>เปิดแอป TrueMoney แล้วเลือกเมนู <b class="text-white">"ซองของขวัญ"</b></span></li>
+            <li class="flex gap-3"><span class="shrink-0 w-5 h-5 rounded-full bg-amber-400/20 text-amber-300 text-xs grid place-items-center font-semibold">2</span><span>ใส่จำนวนเงิน <b class="text-white">ให้ตรงกับยอดชำระ</b> <span id="stepAmount" class="font-semibold text-amber-300"></span> (ซองเดียว)</span></li>
+            <li class="flex gap-3"><span class="shrink-0 w-5 h-5 rounded-full bg-amber-400/20 text-amber-300 text-xs grid place-items-center font-semibold">3</span><span>คัดลอกลิงก์ซองมาวางในช่องด้านล่าง แล้วกดยืนยัน</span></li>
+          </ol>
+        </div>
+
+        <label for="voucherLink" class="block text-xs font-medium text-slate-300 mb-1.5">ลิงก์ซองของขวัญ <span class="text-red-400">*</span></label>
+        <div class="flex gap-2">
+          <input type="text" id="voucherLink" autocomplete="off" placeholder="https://gift.truemoney.com/campaign/?v=..." class="field">
+          <button type="button" id="pasteBtn" class="shrink-0 px-4 rounded-xl border border-line bg-ink hover:border-amber-400/50 text-sm text-slate-300 transition">วาง</button>
+        </div>
+        <p class="err text-xs text-red-400 mt-1 hidden" data-for="voucherLink">ลิงก์ซองไม่ถูกต้อง ต้องเป็นลิงก์จาก gift.truemoney.com</p>
+        <p class="text-xs text-slate-500 mt-2">ซองที่ใช้แล้ว หรือยอดไม่ตรง อาจไม่สามารถดำเนินการได้ โปรดตรวจสอบก่อนส่ง</p>
+      </section>
+    </div>
+
+    <!-- Summary (desktop) -->
+    <aside class="hidden lg:block sticky top-24">
+      <div class="bg-panel/90 border border-line rounded-3xl p-6 shadow-2xl shadow-black/40">
+        <h3 class="font-semibold mb-4">สรุปรายการสั่งซื้อ</h3>
+        <dl class="space-y-3 text-sm">
+          <div class="flex justify-between gap-3"><dt class="text-slate-500">เกม</dt><dd>One Punch Man</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-slate-500">UID</dt><dd id="sumUid" class="font-medium text-right break-all">-</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-slate-500">Server</dt><dd id="sumSid" class="text-right">-</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-slate-500">แพ็กเกจ</dt><dd id="sumPkg" class="font-medium text-right">ยังไม่ได้เลือก</dd></div>
+          <div class="flex justify-between gap-3"><dt class="text-slate-500">ราคาต่อคูปอง</dt><dd id="sumUnit" class="text-right">-</dd></div>
+        </dl>
+        <div class="my-5 border-t border-dashed border-line"></div>
+        <div class="flex items-end justify-between">
+          <span class="text-sm text-slate-400">ยอดชำระสุทธิ</span>
+          <span class="text-3xl font-extrabold grad-text"><span id="displayPrice">0</span> ฿</span>
+        </div>
+        <button type="submit" id="submitBtn" class="grad-btn w-full mt-5 py-3.5 rounded-xl font-bold text-white transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2">
+          <span class="btn-label">ยืนยันการเติมคูปอง</span>
+        </button>
+        <div id="statusBox" class="hidden mt-4 p-3.5 rounded-xl text-sm text-center font-medium"></div>
+        <p class="text-[11px] text-slate-500 text-center mt-4 leading-relaxed">การกดยืนยันถือว่าคุณตรวจสอบ UID และยอดเงินถูกต้องแล้ว</p>
+      </div>
+    </aside>
+  </form>
+
+  <!-- How it works -->
+  <section id="how" class="mt-20 scroll-mt-24">
+    <div class="text-center mb-8">
+      <h2 class="text-2xl sm:text-3xl font-bold">เติมง่ายใน <span class="grad-text">4 ขั้นตอน</span></h2>
+      <p class="text-slate-500 text-sm mt-2">ไม่ต้องสมัครสมาชิก ไม่ต้องล็อกอินบัญชีเกม</p>
+    </div>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-panel/70 border border-line rounded-2xl p-5">
+        <div class="text-3xl mb-3">🆔</div><h3 class="font-semibold mb-1">กรอก UID</h3>
+        <p class="text-sm text-slate-500">ใส่ UID และ SID ของคุณให้ถูกต้อง สามารถดูได้จากหน้าเติมเเบงค์เขียวภายในเกม</p>
+      </div>
+      <div class="bg-panel/70 border border-line rounded-2xl p-5">
+        <div class="text-3xl mb-3">🎫</div><h3 class="font-semibold mb-1">เลือกแพ็กเกจ</h3>
+        <p class="text-sm text-slate-500">เลือกจำนวนคูปองที่ต้องการ ดูยอดชำระได้ทันที</p>
+      </div>
+      <div class="bg-panel/70 border border-line rounded-2xl p-5">
+        <div class="text-3xl mb-3">🧧</div><h3 class="font-semibold mb-1">สร้างซองของขวัญ</h3>
+        <p class="text-sm text-slate-500">สร้างซอง TrueMoney ตามยอดที่ระบุ แล้วคัดลอกลิงก์</p>
+      </div>
+      <div class="bg-panel/70 border border-line rounded-2xl p-5">
+        <div class="text-3xl mb-3">✅</div><h3 class="font-semibold mb-1">ยืนยันและรอรับคูปอง</h3>
+        <p class="text-sm text-slate-500">แอดมินตรวจสอบซองและเติมให้ตามคิว ดูสถานะได้บนหน้าเว็บ</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- FAQ -->
+  <section id="faq" class="mt-20 scroll-mt-24 max-w-3xl mx-auto">
+    <div class="text-center mb-8">
+      <h2 class="text-2xl sm:text-3xl font-bold">คำถามที่พบบ่อย</h2>
+    </div>
+    <div class="space-y-3">
+      <details class="group bg-panel/70 border border-line rounded-2xl px-5 py-4">
+        <summary class="flex items-center justify-between gap-4 font-medium">ต้องใช้ข้อมูลอะไรบ้างในการเติม?
+          <svg class="chev w-4 h-4 text-slate-400 transition" viewBox="0 0 20 20" fill="currentColor"><path d="M5.3 7.3 10 12l4.7-4.7 1.4 1.4L10 14.8 3.9 8.7z"/></svg></summary>
+        <p class="text-sm text-slate-400 mt-3">ต้องใช้ UID (และ Server ID ถ้ามี), ช่องทางติดต่อกลับทาง Facebook และลิงก์ซองของขวัญ TrueMoney ไม่ต้องให้รหัสผ่านเกม</p>
+      </details>
+      <details class="group bg-panel/70 border border-line rounded-2xl px-5 py-4">
+        <summary class="flex items-center justify-between gap-4 font-medium">ทำไมต้องใส่ยอดในซองให้ตรงเป๊ะ?
+          <svg class="chev w-4 h-4 text-slate-400 transition" viewBox="0 0 20 20" fill="currentColor"><path d="M5.3 7.3 10 12l4.7-4.7 1.4 1.4L10 14.8 3.9 8.7z"/></svg></summary>
+        <p class="text-sm text-slate-400 mt-3">แอดมินจะตรวจสอบยอดในซองเทียบกับแพ็กเกจที่เลือก หากยอดไม่ตรง สถานะออเดอร์จะแสดงว่ายอดเงินไม่เพียงพอ แนะนำให้ตรวจสอบยอดก่อนส่งทุกครั้ง</p>
+      </details>
+      <details class="group bg-panel/70 border border-line rounded-2xl px-5 py-4">
+        <summary class="flex items-center justify-between gap-4 font-medium">ถ้ากรอก UID ผิดต้องทำอย่างไร?
+          <svg class="chev w-4 h-4 text-slate-400 transition" viewBox="0 0 20 20" fill="currentColor"><path d="M5.3 7.3 10 12l4.7-4.7 1.4 1.4L10 14.8 3.9 8.7z"/></svg></summary>
+        <p class="text-sm text-slate-400 mt-3">ติดต่อแอดมินทาง Facebook ที่คุณกรอกไว้หรือช่องทางติดต่อด้านล่าง พร้อมแจ้งรายละเอียดการสั่งซื้อ เพื่อให้ช่วยตรวจสอบ</p>
+      </details>
+      <details class="group bg-panel/70 border border-line rounded-2xl px-5 py-4">
+        <summary class="flex items-center justify-between gap-4 font-medium">เปิดให้บริการเวลาไหน?
+          <svg class="chev w-4 h-4 text-slate-400 transition" viewBox="0 0 20 20" fill="currentColor"><path d="M5.3 7.3 10 12l4.7-4.7 1.4 1.4L10 14.8 3.9 8.7z"/></svg></summary>
+        <p class="text-sm text-slate-400 mt-3">ส่งออเดอร์ได้ตลอด 24 ชั่วโมง ทุกวัน แอดมินจะเติมให้ตามคิวเมื่อออนไลน์ และคุณติดตามสถานะได้บนหน้าเว็บ</p>
+      </details>
+      <details class="group bg-panel/70 border border-line rounded-2xl px-5 py-4">
+        <summary class="flex items-center justify-between gap-4 font-medium">ดูสถานะออเดอร์ได้ที่ไหน?
+          <svg class="chev w-4 h-4 text-slate-400 transition" viewBox="0 0 20 20" fill="currentColor"><path d="M5.3 7.3 10 12l4.7-4.7 1.4 1.4L10 14.8 3.9 8.7z"/></svg></summary>
+        <p class="text-sm text-slate-400 mt-3">หลังกดยืนยัน จะมีหน้าต่างแสดงสถานะออเดอร์ขึ้นมาและอัปเดตอัตโนมัติ หากปิดหน้าต่างไป สามารถกดแถบ "ออเดอร์ล่าสุดของคุณ" ที่ด้านบนฟอร์มเพื่อเปิดดูอีกครั้ง (ใช้ได้บนเบราว์เซอร์เดิมที่ส่งออเดอร์)</p>
+      </details>
+    </div>
+  </section>
+
+  <!-- Contact -->
+  <section id="contact" class="mt-20 scroll-mt-24 max-w-3xl mx-auto">
+    <div class="relative overflow-hidden rounded-3xl border border-amber-400/20 bg-gradient-to-br from-amber-500/10 via-panel to-red-500/10 p-8 text-center">
+      <h2 class="text-xl sm:text-2xl font-bold">มีปัญหาในการเติม? ติดต่อแอดมินได้เลย</h2>
+      <p class="text-sm text-slate-400 mt-2">แจ้งหมายเลขออเดอร์ เพื่อให้ตรวจสอบได้เร็วขึ้น</p>
+      <!-- TODO: ใส่ลิงก์ Facebook เพจของร้านคุณแทน # -->
+      <a href="#" target="_blank" rel="noopener" class="grad-btn inline-flex items-center gap-2 mt-5 px-6 py-3 rounded-xl font-semibold text-white transition">
+        💬 ติดต่อผ่าน Facebook
+      </a>
+    </div>
+  </section>
+</main>
+
+<!-- Footer -->
+<footer class="border-t border-white/5 py-8 px-4 text-center text-xs text-slate-500 space-y-1.5">
+  <p>© 2026 Park Termgame. All rights reserved.</p>
+  <p>เว็บไซต์นี้เป็นบริการเติมเกมของร้านอิสระ ไม่ได้เกี่ยวข้องกับผู้พัฒนาหรือผู้จัดจำหน่ายเกมอย่างเป็นทางการ ชื่อเกมและเครื่องหมายการค้าเป็นของเจ้าของลิขสิทธิ์</p>
+</footer>
+
+<!-- Mobile bottom bar -->
+<div class="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-ink/95 backdrop-blur-xl border-t border-line px-4 py-3">
+  <div id="statusBoxMobile" class="hidden mb-2 p-3 rounded-xl text-sm text-center font-medium"></div>
+  <div class="flex items-center gap-3 max-w-lg mx-auto">
+    <div class="shrink-0">
+      <p class="text-[11px] text-slate-500 leading-none">ยอดชำระ</p>
+      <p class="text-xl font-extrabold grad-text leading-tight"><span id="displayPriceM">0</span> ฿</p>
+    </div>
+    <button type="button" id="submitBtnM" class="grad-btn flex-1 py-3 rounded-xl font-bold text-white transition active:scale-[0.98] flex items-center justify-center gap-2">
+      <span class="btn-label">ยืนยันการเติมคูปอง</span>
+    </button>
+  </div>
+</div>
+
+<!-- Order status modal -->
+<div id="modal" class="hidden fixed inset-0 z-50 grid place-items-center p-4 bg-black/70 backdrop-blur-sm">
+  <div class="pop w-full max-w-sm bg-panel border border-line rounded-3xl p-6 sm:p-7 max-h-[92vh] overflow-y-auto">
+    <div class="text-center">
+      <div id="trkIcon" class="mx-auto w-16 h-16 rounded-full border grid place-items-center mb-4 text-3xl"></div>
+      <h3 id="trkTitle" class="text-xl font-bold"></h3>
+      <p id="trkDesc" class="text-sm text-slate-400 mt-2"></p>
+    </div>
+    <ol id="trkSteps" class="mt-6 space-y-3"></ol>
+    <div id="modalSummary" class="mt-5 rounded-xl bg-ink border border-line p-3 text-sm space-y-1.5"></div>
+    <p id="trkNote" class="text-[11px] text-slate-500 text-center mt-3"></p>
+    <button id="modalClose" class="grad-btn w-full mt-5 py-3 rounded-xl font-semibold text-white">ปิด</button>
+  </div>
+</div>
+
+<script>
+/* ===== Packages (ค่า name / price คงเดิมจากไฟล์ต้นฉบับ ส่งเข้า /api/topup เหมือนเดิม) ===== */
+const PACKAGES = [
+  { name: '1 คูปอง',            coupons: 1,   price: 10 },
+  { name: '6 คูปอง',            coupons: 6,   price: 22 },
+  { name: '14 คูปอง',           coupons: 14,  price: 49 },
+  { name: '35 คูปอง',           coupons: 35,  price: 110 },
+  { name: '70 คูปอง',           coupons: 70,  price: 220 },
+  { name: '105 คูปอง',          coupons: 105, price: 322 },
+  { name: '210 คูปอง (105*2)',  coupons: 210, price: 642, note: '105 × 2' },
+  { name: '350 คูปอง',          coupons: 350, price: 1102 },
+  { name: '560 คูปอง',          coupons: 560, price: 1711 },
+  { name: '700 คูปอง',          coupons: 700, price: 2030, tag: 'ราคาต่อคูปองต่ำสุด' }
+];
+const BASE_UNIT = PACKAGES[0].price / PACKAGES[0].coupons;
+const fmt = n => Number(n).toLocaleString('th-TH');
+const unit = p => (p.price / p.coupons);
+
+let selected = null;
+
+const grid = document.getElementById('packageGrid');
+PACKAGES.forEach((p, i) => {
+  const saving = Math.round((1 - unit(p) / BASE_UNIT) * 100);
+  const label = document.createElement('label');
+  label.className = 'pkg relative block cursor-pointer';
+  label.innerHTML = `
+    <input type="radio" name="pkg" value="${i}" class="sr-only">
+    <div class="pkg-card h-full rounded-2xl border border-line bg-ink/60 p-4 transition">
+      <span class="pkg-check absolute top-3 right-3 w-5 h-5 rounded-full grad-btn grid place-items-center">
+        <svg class="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="4"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+      </span>
+      <div class="flex items-center gap-1.5 text-amber-300">
+        <span>🎫</span><span class="text-2xl font-extrabold leading-none text-white">${fmt(p.coupons)}</span>
+      </div>
+      <p class="text-[11px] text-slate-500 mt-0.5 h-4">${p.note ? p.note : 'คูปอง'}</p>
+      <p class="mt-3 text-lg font-bold">${fmt(p.price)} <span class="text-sm font-medium text-slate-400">฿</span></p>
+      <p class="text-[11px] text-slate-500">≈ ${unit(p).toFixed(2)} ฿ / คูปอง</p>
+      ${saving > 0 ? `<span class="inline-block mt-2 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5">ถูกลง ~${saving}%</span>` : `<span class="inline-block mt-2 text-[10px] text-transparent">.</span>`}
+      ${p.tag ? `<span class="absolute -top-2 left-3 text-[10px] font-bold text-black bg-amber-400 rounded-full px-2.5 py-0.5">${p.tag}</span>` : ''}
+    </div>`;
+  label.querySelector('input').addEventListener('change', () => { selected = p; updateSummary(); clearErr('package'); });
+  grid.appendChild(label);
+});
+
+const $ = id => document.getElementById(id);
+function updateSummary() {
+  const price = selected ? selected.price : 0;
+  $('displayPrice').textContent = fmt(price);
+  $('displayPriceM').textContent = fmt(price);
+  $('stepAmount').textContent = selected ? `= ${fmt(price)} บาท` : '';
+  $('sumPkg').textContent = selected ? selected.name : 'ยังไม่ได้เลือก';
+  $('sumUnit').textContent = selected ? unit(selected).toFixed(2) + ' ฿' : '-';
+  $('sumUid').textContent = $('uid').value.trim() || '-';
+  $('sumSid').textContent = $('sid').value.trim() || '-';
+}
+['uid', 'sid'].forEach(id => $(id).addEventListener('input', updateSummary));
+
+/* ===== Validation ===== */
+const VOUCHER_RE = /^https?:\/\/gift\.truemoney\.com\/campaign\/?\?v=[A-Za-z0-9]+/i;
+function showErr(key) {
+  const el = document.querySelector(`.err[data-for="${key}"]`); if (el) el.classList.remove('hidden');
+  const input = $(key); if (input) input.classList.add('invalid');
+}
+function clearErr(key) {
+  const el = document.querySelector(`.err[data-for="${key}"]`); if (el) el.classList.add('hidden');
+  const input = $(key); if (input) input.classList.remove('invalid');
+}
+['uid', 'facebook', 'voucherLink'].forEach(id => $(id).addEventListener('input', () => clearErr(id)));
+
+function validate() {
+  let ok = true, first = null;
+  const mark = (key, cond) => { if (!cond) { showErr(key); ok = false; if (!first) first = $(key) || grid; } };
+  mark('uid', $('uid').value.trim().length > 0);
+  mark('facebook', $('facebook').value.trim().length > 0);
+  mark('package', !!selected);
+  mark('voucherLink', VOUCHER_RE.test($('voucherLink').value.trim()));
+  if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  return ok;
+}
+
+/* ===== Paste button ===== */
+$('pasteBtn').addEventListener('click', async () => {
+  try { $('voucherLink').value = (await navigator.clipboard.readText()).trim(); clearErr('voucherLink'); }
+  catch { $('voucherLink').focus(); }
+});
+
+/* ===== Status ===== */
+function setStatus(type, msg) {
+  const cls = type === 'ok'
+    ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-400'
+    : 'bg-rose-500/10 border border-rose-500/30 text-rose-400';
+  ['statusBox', 'statusBoxMobile'].forEach(id => {
+    const el = $(id);
+    if (!type) { el.className = 'hidden'; return; }
+    el.className = `${id === 'statusBox' ? 'mt-4 p-3.5' : 'mb-2 p-3'} rounded-xl text-sm text-center font-medium ${cls}`;
+    el.textContent = msg;
+  });
+}
+function setLoading(on) {
+  [$('submitBtn'), $('submitBtnM')].forEach(btn => {
+    btn.disabled = on;
+    btn.querySelector('.btn-label').textContent = on ? 'กำลังส่งออเดอร์...' : 'ยืนยันการเติมคูปอง';
+    const sp = btn.querySelector('.spinner');
+    if (on && !sp) btn.insertAdjacentHTML('afterbegin', '<span class="spinner"></span>');
+    if (!on && sp) sp.remove();
+  });
+}
+
+/* ===== Submit ===== */
+async function submitOrder(e) {
+  if (e) e.preventDefault();
+  setStatus(null);
+  if (!validate()) return;
+
+  const payload = {
+    uid: $('uid').value.trim(),
+    sid: $('sid').value.trim(),
+    facebook: $('facebook').value.trim(),
+    packageName: selected.name,
+    expectedPrice: String(selected.price),
+    voucherLink: $('voucherLink').value.trim()
+  };
+  const snapshot = { ...payload, price: selected.price };
+
+  setLoading(true);
+  try {
+    const res = await fetch('/api/topup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const result = await res.json();
+    if (result.success) {
+      beginTracking(result.orderId, snapshot);
+      $('topupForm').reset();
+      document.querySelectorAll('input[name="pkg"]').forEach(r => r.checked = false);
+      selected = null; updateSummary();
+    } else {
+      setStatus('err', result.message || 'ไม่สามารถดำเนินการได้ กรุณาตรวจสอบข้อมูลอีกครั้ง');
+    }
+  } catch (err) {
+    setStatus('err', 'เกิดข้อผิดพลาดในการเชื่อมต่อเซิร์ฟเวอร์');
+  } finally {
+    setLoading(false);
+  }
+}
+$('topupForm').addEventListener('submit', submitOrder);
+$('submitBtnM').addEventListener('click', () => submitOrder());
+
+/* ===== Order tracking (สถานะออเดอร์จากแอดมินใน Discord) ===== */
+const TRACK_KEY = 'ptg_last_order';
+const FINAL = ['done', 'insufficient'];
+const STEPS = ['ส่งออเดอร์แล้ว', 'กำลังตรวจสอบลิงก์ซอง', 'รับเงินแล้ว รอเติมตามคิว', 'เติมเสร็จสิ้น'];
+const STEP_INDEX = { checking: 1, received: 2, done: 3 };
+const VIEW = {
+  checking:     { icon: '⏳', tone: 'bg-amber-500/15 border-amber-500/30',     title: 'กำลังตรวจสอบลิงก์ซอง',     desc: 'ส่งออเดอร์ให้แอดมินแล้ว กรุณารอ5นาทีถึง1ชั่วโมง หน้านี้จะอัปเดตสถานะให้อัตโนมัติ' },
+  received:     { icon: '💰', tone: 'bg-blue-500/15 border-blue-500/30',       title: 'รับเงินแล้ว รอเติมตามคิว', desc: 'แอดมินรับเงินเรียบร้อยแล้ว กำลังเติมให้ตามคิวใช้เวลา5นาทีถึง1ชั่วโมง' },
+  done:         { icon: '✅', tone: 'bg-emerald-500/15 border-emerald-500/30', title: 'เติมเสร็จสิ้น',            desc: 'ดำเนินการเติมคูปองเรียบร้อยแล้ว หากคูปองไม่เข้าหรือเข้าไม่ครบ ติดต่อFacebook ร้านได้เลย ขอบคุณที่ใช้บริการ' },
+  insufficient: { icon: '⚠️', tone: 'bg-rose-500/15 border-rose-500/30',       title: 'ยอดเงินไม่เพียงพอ',        desc: 'ยอดเงินในซองไม่ตรงกับแพ็กเกจ กรุณาติดต่อแอดมินทาง Facebook พร้อมแจ้งเลขออเดอร์' }
+};
+const BAR_TEXT = { checking: 'กำลังตรวจสอบลิงก์ซอง', received: 'รับเงินแล้ว รอเติมตามคิว', done: 'เติมเสร็จสิ้น', insufficient: 'ยอดเงินไม่เพียงพอ' };
+
+let current = null, pollTimer = null;
+const esc = t => String(t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const shortId = id => String(id).slice(-6).toUpperCase();
+function saveTrack() { try { localStorage.setItem(TRACK_KEY, JSON.stringify(current)); } catch (e) {} }
+function loadTrack() { try { return JSON.parse(localStorage.getItem(TRACK_KEY) || 'null'); } catch (e) { return null; } }
+function clearTrack() { try { localStorage.removeItem(TRACK_KEY); } catch (e) {} }
+
+const CHECK = '<svg class="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="4"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>';
+function stepHTML(state, text) {
+  const dot = state === 'done'
+    ? `<span class="shrink-0 w-6 h-6 rounded-full grad-btn grid place-items-center">${CHECK}</span>`
+    : state === 'active'
+    ? '<span class="shrink-0 w-6 h-6 rounded-full border-2 border-amber-400 grid place-items-center"><span class="live-dot w-2 h-2 rounded-full bg-amber-400"></span></span>'
+    : state === 'error'
+    ? '<span class="shrink-0 w-6 h-6 rounded-full bg-rose-500 grid place-items-center text-white text-xs font-bold">!</span>'
+    : '<span class="shrink-0 w-6 h-6 rounded-full border border-line"></span>';
+  const color = state === 'pending' ? 'text-slate-600' : state === 'error' ? 'text-rose-400' : 'text-slate-200';
+  return `<li class="flex items-center gap-3 text-sm ${color}">${dot}<span>${text}</span></li>`;
+}
+
+function renderTracker() {
+  if (!current) return;
+  const v = VIEW[current.status] || VIEW.checking;
+  $('trkIcon').className = `mx-auto w-16 h-16 rounded-full border grid place-items-center mb-4 text-3xl ${v.tone}`;
+  $('trkIcon').textContent = v.icon;
+  $('trkTitle').textContent = v.title;
+  $('trkDesc').textContent = v.desc;
+
+  let html = '';
+  if (current.status === 'insufficient') {
+    html = stepHTML('done', STEPS[0]) + stepHTML('done', STEPS[1]) + stepHTML('error', 'ยอดเงินไม่เพียงพอ');
+  } else {
+    const idx = STEP_INDEX[current.status] ?? 1;
+    html = STEPS.map((t, i) => stepHTML(i < idx || (current.status === 'done' && i <= idx) ? 'done' : i === idx ? 'active' : 'pending', t)).join('');
+  }
+  $('trkSteps').innerHTML = html;
+
+  const row = (k, val) => `<div class="flex justify-between gap-3"><span class="text-slate-500">${k}</span><span class="font-medium text-right break-all">${val}</span></div>`;
+  $('modalSummary').innerHTML =
+    row('หมายเลขออเดอร์', '#' + esc(shortId(current.id))) + row('UID', esc(current.uid)) +
+    (current.sid ? row('Server', esc(current.sid)) : '') +
+    row('แพ็กเกจ', esc(current.packageName)) + row('ยอดชำระ', fmt(current.price) + ' ฿');
+  $('trkNote').textContent = FINAL.includes(current.status)
+    ? 'เก็บหมายเลขออเดอร์ไว้อ้างอิงกับแอดมินได้'
+    : 'หน้านี้อัปเดตสถานะอัตโนมัติ ปิดหน้าต่างได้ แล้วกลับมาดูใหม่ที่แถบ "ออเดอร์ล่าสุด"';
+}
+
+function renderBar() {
+  const bar = $('lastOrderBar');
+  if (!current) { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  $('lastOrderNo').textContent = shortId(current.id);
+  $('lastOrderIcon').textContent = (VIEW[current.status] || VIEW.checking).icon;
+  $('lastOrderText').textContent = BAR_TEXT[current.status] || BAR_TEXT.checking;
+}
+
+function openModal() { renderTracker(); $('modal').classList.remove('hidden'); }
+function closeModal() { $('modal').classList.add('hidden'); }
+function stopPoll() { if (pollTimer) { clearInterval(pollTimer); pollTimer = null; } }
+function startPoll() { stopPoll(); pollTimer = setInterval(tick, 5000); }
+
+async function tick() {
+  if (!current) return;
+  try {
+    const res = await fetch('/api/order/' + encodeURIComponent(current.id), { cache: 'no-store' });
+    if (res.status === 404) { stopPoll(); clearTrack(); current = null; renderBar(); closeModal(); return; }
+    const d = await res.json();
+    if (d.success && d.status) {
+      current.status = d.status;
+      saveTrack(); renderTracker(); renderBar();
+      if (FINAL.includes(d.status)) stopPoll();
+    }
+  } catch (e) { /* เน็ตหลุดชั่วคราว ลองใหม่รอบถัดไป */ }
+}
+
+function beginTracking(orderId, snap) {
+  current = { id: orderId, status: 'checking', uid: snap.uid, sid: snap.sid, packageName: snap.packageName, price: snap.price };
+  saveTrack(); renderBar(); openModal(); startPoll();
+}
+
+$('modalClose').addEventListener('click', closeModal);
+$('modal').addEventListener('click', e => { if (e.target === $('modal')) closeModal(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+$('lastOrderOpen').addEventListener('click', openModal);
+$('lastOrderClear').addEventListener('click', () => { stopPoll(); clearTrack(); current = null; renderBar(); });
+
+// เปิดหน้าเว็บใหม่: โหลดออเดอร์ล่าสุดที่เคยส่งจากเบราว์เซอร์เครื่องนี้
+(function restore() {
+  const saved = loadTrack();
+  if (saved && saved.id) {
+    current = saved; renderBar(); tick();
+    if (!FINAL.includes(current.status)) startPoll();
+  }
+})();
+
+updateSummary();
+</script>
+</body>
+</html>
