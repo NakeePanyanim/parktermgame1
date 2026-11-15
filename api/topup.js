@@ -21,19 +21,54 @@ if (!BOT_TOKEN || !CHANNEL_ID) {
     process.exit(1);
 }
 
-// ราคาแพ็กเกจอยู่ฝั่งเซิร์ฟเวอร์เท่านั้น (ชื่อต้องตรงกับที่หน้าเว็บส่งมา)
-const PACKAGES = {
-    '1 คูปอง': 10,
-    '6 คูปอง': 22,
-    '14 คูปอง': 49,
-    '35 คูปอง': 110,
-    '70 คูปอง': 220,
-    '105 คูปอง': 322,
-    '210 คูปอง (105*2)': 642,
-    '350 คูปอง': 1102,
-    '560 คูปอง': 1711,
-    '700 คูปอง': 2030
+// ราคาแพ็กเกจและฟิลด์ของแต่ละเกมอยู่ฝั่งเซิร์ฟเวอร์เท่านั้น (ชื่อแพ็กเกจต้องตรงกับที่หน้าเว็บส่งมา)
+// จะเพิ่มเกมใหม่ แค่เพิ่ม block ในนี้ + เพิ่มในหน้าเว็บ (GAMES ใน index.html)
+const ROBLOX_USER_RE = /^[A-Za-z0-9_]{3,20}$/;
+const GAMES = {
+    opm: {
+        name: 'One Punch Man',
+        fields: [
+            { key: 'uid', max: 50 },
+            { key: 'sid', max: 20 },
+            { key: 'ign', max: 100 }
+        ],
+        packages: {
+            '1 คูปอง': 10,
+            '6 คูปอง': 22,
+            '14 คูปอง': 49,
+            '35 คูปอง': 110,
+            '70 คูปอง': 220,
+            '105 คูปอง': 322,
+            '210 คูปอง (105*2)': 642,
+            '350 คูปอง': 1102,
+            '560 คูปอง': 1711,
+            '700 คูปอง': 2030
+        }
+    },
+    roblox: {
+        name: 'Roblox',
+        fields: [
+            { key: 'username', max: 30, norm: (v) => v.replace(/^@/, ''), test: (v) => ROBLOX_USER_RE.test(v), error: 'Username ไม่ถูกต้อง (ใช้ได้เฉพาะ A-Z ตัวเลข และ _ ความยาว 3-20 ตัว)' },
+            { key: 'displayName', max: 50 }
+        ],
+        packages: {
+            '100 Robux': 40,
+            '200 Robux': 75,
+            '300 Robux': 99,
+            '400 Robux': 135,
+            '500 Robux': 169,
+            '600 Robux': 199,
+            '700 Robux': 235,
+            '800 Robux': 269,
+            '900 Robux': 299,
+            '1000 Robux': 339,
+            '1500 Robux': 459,
+            '2000 Robux': 669,
+            '5000 Robux': 1690
+        }
+    }
 };
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 // ================================================================
 
 // ---------- เก็บออเดอร์ลงไฟล์ orders.json ----------
@@ -72,6 +107,7 @@ function parseVoucher(link) {
 }
 
 const clean = (v, max) => String(v ?? '').trim().slice(0, max);
+const code = (v) => '`' + String(v || '-').replace(/`/g, "'") + '`';
 const isFinal = (s) => s === 'done' || s === 'insufficient';
 
 // ---------- Discord bot ----------
@@ -86,13 +122,24 @@ const STATUS = {
 
 function buildMessage(o) {
     const s = STATUS[o.status];
+    const gameKey = GAMES[o.game] ? o.game : 'opm'; // ออเดอร์เก่าที่ไม่มี game = One Punch Man
+    const accountFields = gameKey === 'roblox'
+        ? [
+            { name: '👤 Username', value: code(o.username), inline: true },
+            { name: '🏷️ Display Name', value: code(o.displayName), inline: true }
+        ]
+        : [
+            { name: '🎮 UID', value: code(o.uid), inline: true },
+            { name: '🌐 Server ID', value: code(o.sid), inline: true },
+            { name: '🧑 ชื่อในเกม', value: code(o.ign), inline: true }
+        ];
     const embed = new EmbedBuilder()
         .setTitle(`🧾 ออเดอร์ #${o.id.slice(-6).toUpperCase()}`)
         .setColor(s.color)
         .addFields(
             { name: '📌 สถานะ', value: s.text, inline: false },
-            { name: '🎮 UID', value: `\`${o.uid}\``, inline: true },
-            { name: '🌐 Server ID', value: `\`${o.sid || '-'}\``, inline: true },
+            { name: '🕹️ เกม', value: `**${GAMES[gameKey].name}**`, inline: false },
+            ...accountFields,
             { name: '📘 Facebook', value: o.facebook || '-', inline: false },
             { name: '📦 แพ็กเกจ', value: o.packageName, inline: true },
             { name: '💰 ยอดที่ต้องได้รับ', value: `**${o.price.toLocaleString('en-US')} บาท**`, inline: true }
@@ -182,21 +229,36 @@ const statusLimiter = rateLimit({
 
 // ลูกค้าส่งออเดอร์ -> สร้างออเดอร์ + ส่งเข้า Discord พร้อมปุ่ม
 app.post('/api/topup', topupLimiter, async (req, res) => {
-    const uid = clean(req.body.uid, 50);
-    const sid = clean(req.body.sid, 20);
+    // ไม่ส่ง game มา = One Punch Man (รองรับหน้าเว็บเวอร์ชันเก่าที่ยังแคชอยู่)
+    const gameKey = clean(req.body.game, 20) || 'opm';
+    if (!hasOwn(GAMES, gameKey)) {
+        return res.status(400).json({ success: false, message: 'เกมไม่ถูกต้อง' });
+    }
+    const game = GAMES[gameKey];
+
+    const data = {};
+    for (const f of game.fields) {
+        let v = clean(req.body[f.key], f.max);
+        if (f.norm) v = f.norm(v);
+        data[f.key] = v;
+    }
     const facebook = clean(req.body.facebook, 200);
     const packageName = clean(req.body.packageName, 100);
     const voucherLink = clean(req.body.voucherLink, 300);
 
-    if (!uid || !facebook || !packageName || !voucherLink) {
-        return res.status(400).json({ success: false, message: 'กรุณากรอกข้อมูล (UID, Facebook, แพ็กเกจ และลิงก์ซอง) ให้ครบถ้วน' });
+    if (game.fields.some(f => !data[f.key]) || !facebook || !packageName || !voucherLink) {
+        return res.status(400).json({ success: false, message: 'กรุณากรอกข้อมูลบัญชีเกม, Facebook, แพ็กเกจ และลิงก์ซอง ให้ครบถ้วน' });
+    }
+    const badField = game.fields.find(f => f.test && !f.test(data[f.key]));
+    if (badField) {
+        return res.status(400).json({ success: false, message: badField.error });
     }
 
     // ราคามาจากตารางฝั่งเซิร์ฟเวอร์ ไม่เชื่อค่า expectedPrice ที่ลูกค้าส่งมา
-    if (!Object.prototype.hasOwnProperty.call(PACKAGES, packageName)) {
+    if (!hasOwn(game.packages, packageName)) {
         return res.status(400).json({ success: false, message: 'แพ็กเกจไม่ถูกต้อง' });
     }
-    const price = PACKAGES[packageName];
+    const price = game.packages[packageName];
 
     const voucherCode = parseVoucher(voucherLink);
     if (!voucherCode) {
@@ -208,7 +270,7 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
 
     const id = crypto.randomBytes(12).toString('hex');
     const now = Date.now();
-    const order = { id, uid, sid, facebook, packageName, price, voucherCode, status: 'checking', createdAt: now, updatedAt: now };
+    const order = { id, game: gameKey, ...data, facebook, packageName, price, voucherCode, status: 'checking', createdAt: now, updatedAt: now };
     if (dupOf) order.dupOf = dupOf.id;
 
     // เก็บก่อนส่ง Discord ถ้าส่งไม่ผ่านค่อยลบทิ้ง
@@ -239,6 +301,7 @@ app.get('/api/order/:id', statusLimiter, (req, res) => {
     return res.json({
         success: true,
         status: order.status,
+        game: order.game || 'opm',
         packageName: order.packageName,
         price: order.price,
         updatedAt: order.updatedAt
