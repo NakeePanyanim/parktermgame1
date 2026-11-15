@@ -439,7 +439,7 @@ tailwind.config = {
       <span id="accAvatar" class="shrink-0"></span>
       <div class="min-w-0">
         <p id="accName" class="font-semibold truncate"></p>
-        <p class="text-xs text-slate-500">ล็อกอินด้วย Discord</p>
+        <p class="text-xs text-slate-500">ล็อกอินด้วย Discord · ยศ <b id="accRole" class="text-amber-300"></b></p>
       </div>
     </div>
     <div class="mt-4 rounded-2xl bg-ink border border-line p-4 flex items-end justify-between">
@@ -453,6 +453,7 @@ tailwind.config = {
       <button type="button" data-tab="ledger" class="acc-tab flex-1 py-2 rounded-lg border border-line">Point</button>
     </div>
     <ul id="accList" class="mt-3 space-y-2 text-sm"></ul>
+    <a href="/admin.html" id="accAdmin" class="hidden mt-3 block text-center py-2.5 rounded-xl border border-amber-400/40 text-sm font-semibold text-amber-300 hover:bg-amber-400/10 transition">หน้าแอดมิน</a>
     <div class="mt-5 flex gap-2">
       <button type="button" id="accLogout" class="flex-1 py-2.5 rounded-xl border border-line text-sm text-slate-300 hover:border-rose-400/50 transition">ออกจากระบบ</button>
       <button type="button" id="accClose" class="flex-1 py-2.5 rounded-xl border border-line text-sm text-slate-300 hover:border-amber-400/50 transition">ปิด</button>
@@ -476,18 +477,7 @@ const GAMES = {
       { key: 'sid', label: 'Server' },
       { key: 'ign', label: 'ชื่อในเกม' }
     ],
-    packages: [
-      { name: '1 คูปอง',            qty: 1,   price: 10 },
-      { name: '6 คูปอง',            qty: 6,   price: 22 },
-      { name: '14 คูปอง',           qty: 14,  price: 49 },
-      { name: '35 คูปอง',           qty: 35,  price: 110 },
-      { name: '70 คูปอง',           qty: 70,  price: 220 },
-      { name: '105 คูปอง',          qty: 105, price: 322 },
-      { name: '210 คูปอง (105*2)',  qty: 210, price: 642, note: '105 × 2' },
-      { name: '350 คูปอง',          qty: 350, price: 1102 },
-      { name: '560 คูปอง',          qty: 560, price: 1711 },
-      { name: '700 คูปอง',          qty: 700, price: 2030, tag: 'ราคาต่อคูปองต่ำสุด' }
-    ]
+    packages: [] // โหลดจาก /api/packages (แก้ราคาได้ที่หน้า Admin)
   },
   roblox: {
     name: 'Roblox',
@@ -499,21 +489,7 @@ const GAMES = {
       { key: 'username', label: 'Username', valid: v => /^[A-Za-z0-9_]{3,20}$/.test(v) },
       { key: 'displayName', label: 'Display Name' }
     ],
-    packages: [
-      { name: '100 Robux',  qty: 100,  price: 40 },
-      { name: '200 Robux',  qty: 200,  price: 75 },
-      { name: '300 Robux',  qty: 300,  price: 99 },
-      { name: '400 Robux',  qty: 400,  price: 135 },
-      { name: '500 Robux',  qty: 500,  price: 169 },
-      { name: '600 Robux',  qty: 600,  price: 199 },
-      { name: '700 Robux',  qty: 700,  price: 235 },
-      { name: '800 Robux',  qty: 800,  price: 269 },
-      { name: '900 Robux',  qty: 900,  price: 299 },
-      { name: '1000 Robux', qty: 1000, price: 339 },
-      { name: '1500 Robux', qty: 1500, price: 459 },
-      { name: '2000 Robux', qty: 2000, price: 669 },
-      { name: '5000 Robux', qty: 5000, price: 1690, tag: 'ถูกที่สุดต่อ Robux' }
-    ]
+    packages: [] // โหลดจาก /api/packages
   },
   points: {
     name: 'เติม Point',
@@ -543,13 +519,19 @@ let game = 'opm';
 let selected = null;
 let me = null, authEnabled = false;
 let payMethod = 'voucher';
+let pkgLoaded = false, lastRoleKey = null;
+const ROLE_TH = { member: 'Member', reseller: 'Reseller', admin: 'Admin' };
 function currentPay() { return (me && game !== 'points' && payMethod === 'balance') ? 'balance' : 'voucher'; }
 
 const grid = $('packageGrid');
 function renderPackages() {
   const g = GAMES[game];
-  const baseUnit = unit(g.packages[0]);
+  const baseUnit = g.packages.length ? unit(g.packages[0]) : 1;
   grid.innerHTML = '';
+  if (!g.packages.length) {
+    grid.innerHTML = `<p class="col-span-full text-center text-sm text-slate-500 py-8">${pkgLoaded ? 'ยังไม่มีแพ็กเกจที่เปิดขายในขณะนี้' : 'กำลังโหลดแพ็กเกจ...'}</p>`;
+    return;
+  }
   g.packages.forEach((p, i) => {
     const saving = Math.round((1 - unit(p) / baseUnit) * 100);
     const label = document.createElement('label');
@@ -564,11 +546,12 @@ function renderPackages() {
           ${g.icon}<span class="text-2xl font-extrabold leading-none text-white">${fmt(p.qty)}</span>
         </div>
         <p class="text-[11px] text-slate-500 mt-0.5 h-4">${p.note ? p.note : g.unitLabel}</p>
-        <p class="mt-3 text-lg font-bold">${fmt(p.price)} <span class="text-sm font-medium text-slate-400">฿</span></p>
+        <p class="mt-3 text-lg font-bold">${fmt(p.price)} <span class="text-sm font-medium text-slate-400">฿</span>${p.basePrice && p.basePrice > p.price ? ` <s class="ml-1 text-xs font-normal text-slate-500">${fmt(p.basePrice)}</s>` : ''}</p>
         <p class="text-[11px] text-slate-500">≈ ${(unit(p) * g.perMult).toFixed(2)} ฿ / ${g.perSuffix}</p>
-        ${saving > 0 ? `<span class="inline-block mt-2 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5">ถูกลง ~${saving}%</span>` : `<span class="inline-block mt-2 text-[10px] text-transparent">.</span>`}
+        ${p.basePrice && p.basePrice > p.price ? `<span class="inline-block mt-2 mr-1 text-[10px] font-semibold text-amber-300 bg-amber-400/10 border border-amber-400/20 rounded-full px-2 py-0.5">ราคา Reseller</span>` : ''}${saving > 0 ? `<span class="inline-block mt-2 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5">ถูกลง ~${saving}%</span>` : `<span class="inline-block mt-2 text-[10px] text-transparent">.</span>`}
         ${p.tag ? `<span class="absolute -top-2 left-3 text-[10px] font-bold text-black bg-amber-400 rounded-full px-2.5 py-0.5">${p.tag}</span>` : ''}
       </div>`;
+    if (selected && !selected.custom && selected.name === p.name) label.querySelector('input').checked = true;
     label.querySelector('input').addEventListener('change', () => {
       selected = p;
       if (g.custom) $('customAmount').value = p.qty;
@@ -895,12 +878,27 @@ const avatarHTML = (u, size) => u.avatarUrl
   ? `<img src="${esc(u.avatarUrl)}" alt="" class="${size} rounded-full object-cover shrink-0">`
   : `<span class="${size} rounded-full grad-btn grid place-items-center text-sm font-bold text-white shrink-0">${esc((u.name || '?').slice(0, 1).toUpperCase())}</span>`;
 
+async function loadPackages() {
+  try {
+    const d = await (await fetch('/api/packages', { cache: 'no-store' })).json();
+    if (d.success) {
+      Object.keys(d.packages).forEach(k => { if (GAMES[k]) GAMES[k].packages = d.packages[k]; });
+      pkgLoaded = true;
+    }
+  } catch (e) { pkgLoaded = true; /* เน็ตมีปัญหา แสดงว่าไม่มีแพ็กเกจแทนการค้าง */ }
+  const g = GAMES[game];
+  if (selected && !selected.custom && !g.custom) selected = g.packages.find(p => p.name === selected.name) || null;
+  renderPackages(); updateSummary();
+}
+
 async function loadMe() {
   try {
     const d = await (await fetch('/api/me', { cache: 'no-store' })).json();
     me = d.user || null; authEnabled = !!d.authEnabled;
   } catch (e) { /* ใช้ค่าเดิม */ }
   renderAuth();
+  const key = me ? me.role : 'guest'; // ยศเปลี่ยน = ราคาเปลี่ยน (Reseller ลดราคา) ต้องโหลดแพ็กเกจใหม่
+  if (key !== lastRoleKey) { lastRoleKey = key; await loadPackages(); }
 }
 function renderAuth() {
   const box = $('authBox');
@@ -925,6 +923,8 @@ function fillAcc() {
   if (!me) return;
   $('accAvatar').innerHTML = avatarHTML(me, 'w-12 h-12');
   $('accName').textContent = me.name;
+  $('accRole').textContent = ROLE_TH[me.role] || 'Member';
+  $('accAdmin').classList.toggle('hidden', !me.isAdmin);
   $('accPoints').textContent = fmt(me.points);
   document.querySelectorAll('.acc-tab').forEach(b => b.classList.toggle('on', b.dataset.tab === accTab));
   const list = $('accList');
