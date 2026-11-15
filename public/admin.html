@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>แอดมิน - Park Termgame</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: { extend: {
+    fontFamily: { sans: ['Prompt', 'sans-serif'] },
+    colors: { ink: '#0a0a0f', panel: '#12121a', line: '#25252f' }
+  } }
+}
+</script>
+<style>
+  body { font-family: 'Prompt', sans-serif; background: #0a0a0f; }
+  .grad-btn { background: linear-gradient(90deg,#f59e0b,#ef4444); }
+  .grad-btn:hover:not(:disabled) { filter: brightness(1.1); }
+  .grad-btn:disabled, .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .field { width: 100%; background: #0c0c13; border: 1px solid #2a2a36; border-radius: .7rem; padding: .55rem .8rem; font-size: .875rem; color: #fff; transition: .15s; }
+  .field::placeholder { color: #5b5b6b; }
+  .field:focus { outline: none; border-color: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.15); }
+  .btn { border: 1px solid #2a2a36; background: #0c0c13; border-radius: .7rem; padding: .5rem .9rem; font-size: .8rem; font-weight: 500; color: #cbd5e1; transition: .15s; }
+  .btn:hover:not(:disabled) { border-color: #f59e0b; color: #fbbf24; }
+  .btn.danger:hover:not(:disabled) { border-color: #ef4444; color: #f87171; }
+  .tab.on { border-color: #f59e0b; color: #fbbf24; background: rgba(245,158,11,.08); }
+  .row-hover:hover { border-color: #4a4a5a; }
+  .badge { font-size: 10px; font-weight: 600; border-radius: 9999px; padding: 2px 8px; border: 1px solid; }
+</style>
+</head>
+<body class="text-slate-100 antialiased">
+
+<div id="gate" class="min-h-screen grid place-items-center p-6 text-center">
+  <div>
+    <p id="gateMsg" class="text-slate-400">กำลังตรวจสอบสิทธิ์...</p>
+    <div id="gateActions" class="mt-4 flex gap-2 justify-center"></div>
+  </div>
+</div>
+
+<div id="app" class="hidden max-w-5xl mx-auto px-4 py-6">
+  <header class="flex items-center justify-between gap-3 mb-5">
+    <div>
+      <h1 class="text-xl font-bold">หน้าแอดมิน</h1>
+      <p class="text-xs text-slate-500">Park Termgame · เข้าสู่ระบบเป็น <b id="meName" class="text-slate-300"></b></p>
+    </div>
+    <a href="/" class="btn">← กลับหน้าเว็บ</a>
+  </header>
+
+  <nav class="flex gap-2 mb-5 text-sm overflow-x-auto" id="tabs">
+    <button class="tab btn on" data-tab="users">ผู้ใช้ & เงิน</button>
+    <button class="tab btn" data-tab="packages">แพ็กเกจ & ราคา</button>
+    <button class="tab btn" data-tab="orders">ออเดอร์</button>
+    <button class="tab btn" data-tab="log">บันทึกแอดมิน</button>
+  </nav>
+
+  <!-- ผู้ใช้ -->
+  <section id="tab-users">
+    <div class="flex gap-2 mb-3">
+      <input id="userQ" class="field" placeholder="ค้นหาชื่อ หรือ Discord ID" autocomplete="off">
+      <button id="userSearch" class="btn shrink-0">ค้นหา</button>
+    </div>
+    <p class="text-xs text-slate-500 mb-3">แสดงผู้ที่เคยล็อกอินเข้าเว็บ เรียงตามล่าสุด (สูงสุด 50 คน) ถ้าจะให้เงินใคร คนนั้นต้องล็อกอินเข้าเว็บอย่างน้อย 1 ครั้ง</p>
+    <div class="grid lg:grid-cols-2 gap-4">
+      <ul id="userList" class="space-y-2"></ul>
+      <div id="userDetail" class="lg:sticky lg:top-4 self-start"></div>
+    </div>
+  </section>
+
+  <!-- แพ็กเกจ -->
+  <section id="tab-packages" class="hidden">
+    <div class="flex gap-2 mb-3">
+      <button class="btn pk-game on-game" data-game="opm">One Punch Man</button>
+      <button class="btn pk-game" data-game="roblox">Roblox</button>
+    </div>
+    <p class="text-xs text-slate-500 mb-4">ราคาที่ตั้งในหน้านี้คือ <b class="text-slate-300">ราคาปกติ</b> ยศ Reseller จะถูกลดอัตโนมัติ <b id="discPct" class="text-amber-300">10</b>% (ปัดเป็นบาทเต็ม) ลูกค้าที่เปิดหน้าเว็บอยู่จะเห็นราคาใหม่เมื่อรีเฟรช ออเดอร์เก่าไม่ได้รับผลกระทบ</p>
+    <div id="pkgList" class="space-y-2"></div>
+  </section>
+
+  <!-- ออเดอร์ -->
+  <section id="tab-orders" class="hidden">
+    <div class="flex flex-wrap gap-2 mb-3">
+      <input id="orderQ" class="field flex-1 min-w-[180px]" placeholder="ค้นหา เลขออเดอร์ / ชื่อผู้ใช้ / UID / แพ็กเกจ" autocomplete="off">
+      <select id="orderStatus" class="field w-auto">
+        <option value="">ทุกสถานะ</option>
+        <option value="checking">รอตรวจสอบ</option>
+        <option value="received">รับเงินแล้ว</option>
+        <option value="done">เสร็จสิ้น</option>
+        <option value="insufficient">ยอดไม่ครบ/ยกเลิก</option>
+      </select>
+      <button id="orderSearch" class="btn">ค้นหา</button>
+    </div>
+    <p class="text-xs text-slate-500 mb-3">ดูอย่างเดียว การรับเงิน/เสร็จสิ้น ยังกดที่ปุ่มใน Discord เหมือนเดิม (แสดง 100 รายการล่าสุด)</p>
+    <ul id="orderList" class="space-y-2"></ul>
+  </section>
+
+  <!-- บันทึก -->
+  <section id="tab-log" class="hidden">
+    <ul id="logList" class="space-y-2"></ul>
+  </section>
+</div>
+
+<div id="toast" class="hidden fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-medium shadow-2xl"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt = n => Number(n).toLocaleString('th-TH');
+const when = ts => new Date(ts).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' });
+const GAME_TH = { opm: 'One Punch Man', roblox: 'Roblox', points: 'เติม Point' };
+const ROLE_TH = { member: 'Member', reseller: 'Reseller', admin: 'Admin' };
+const ROLE_CLR = { member: 'text-slate-400 border-slate-600', reseller: 'text-amber-300 border-amber-400/40', admin: 'text-rose-300 border-rose-400/40' };
+const STATUS_TH = { checking: 'รอตรวจสอบ', received: 'รับเงินแล้ว', done: 'เสร็จสิ้น', insufficient: 'ยกเลิก/ยอดไม่ครบ' };
+const STATUS_CLR = { checking: 'text-amber-400 border-amber-400/40', received: 'text-blue-400 border-blue-400/40', done: 'text-emerald-400 border-emerald-400/40', insufficient: 'text-rose-400 border-rose-400/40' };
+const LEDGER_TH = { topup: 'เติมเงิน', purchase: 'ซื้อแพ็กเกจ', admin: 'แอดมินปรับ', refund: 'คืนเงิน' };
+let discountPct = 10;
+
+function toast(msg, ok = true) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = `fixed bottom-5 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl text-sm font-medium shadow-2xl ${ok ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}`;
+  clearTimeout(toast.t); toast.t = setTimeout(() => el.classList.add('hidden'), 3500);
+}
+
+async function api(path, body) {
+  const opt = body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+  const res = await fetch('/api/admin' + path, { ...opt, cache: 'no-store' });
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* ไม่ใช่ JSON */ }
+  if (!res.ok || !data.success) { const err = new Error(data.message || 'เกิดข้อผิดพลาด'); err.status = res.status; throw err; }
+  return data;
+}
+const run = async (fn) => { try { return await fn(); } catch (e) { toast(e.message, false); } };
+
+/* ---------- เข้าหน้า / ตรวจสิทธิ์ ---------- */
+async function boot() {
+  try {
+    const me = await api('/me');
+    $('meName').textContent = me.name; discountPct = me.discountPct; $('discPct').textContent = me.discountPct;
+    $('gate').classList.add('hidden'); $('app').classList.remove('hidden');
+    searchUsers(); 
+  } catch (e) {
+    $('gateMsg').textContent = e.status === 401 ? 'กรุณาเข้าสู่ระบบด้วย Discord ก่อน' : e.status === 403 ? 'บัญชีนี้ไม่มีสิทธิ์แอดมิน' : e.message;
+    $('gateActions').innerHTML = (e.status === 401 ? '<a class="btn" href="/auth/discord">เข้าสู่ระบบ Discord</a>' : '') + '<a class="btn" href="/">กลับหน้าเว็บ</a>';
+  }
+}
+
+/* ---------- แท็บ ---------- */
+const loaded = {};
+document.querySelectorAll('#tabs .tab').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#tabs .tab').forEach(x => x.classList.toggle('on', x === b));
+  ['users', 'packages', 'orders', 'log'].forEach(k => $('tab-' + k).classList.toggle('hidden', k !== b.dataset.tab));
+  const k = b.dataset.tab;
+  if (k === 'packages') loadPackages();
+  if (k === 'orders') loadOrders();
+  if (k === 'log') loadLog();
+}));
+
+/* ---------- ผู้ใช้ ---------- */
+const avatar = (u, size = 'w-9 h-9') => u.avatarUrl
+  ? `<img src="${esc(u.avatarUrl)}" alt="" class="${size} rounded-full object-cover shrink-0">`
+  : `<span class="${size} rounded-full grad-btn grid place-items-center text-xs font-bold text-white shrink-0">${esc((u.name || '?').slice(0, 1).toUpperCase())}</span>`;
+const roleBadge = r => `<span class="badge ${ROLE_CLR[r] || ROLE_CLR.member}">${esc(ROLE_TH[r] || r)}</span>`;
+let selectedUser = null;
+
+async function searchUsers() {
+  await run(async () => {
+    const d = await api('/users?q=' + encodeURIComponent($('userQ').value.trim()));
+    $('userList').innerHTML = d.users.length ? d.users.map(u => `
+      <li><button type="button" data-id="${esc(u.id)}" class="user-row row-hover w-full text-left flex items-center gap-3 rounded-xl border ${u.id === selectedUser ? 'border-amber-400' : 'border-line'} bg-panel p-3 transition">
+        ${avatar(u)}
+        <span class="min-w-0 flex-1"><span class="block font-medium truncate">${esc(u.name)}</span><span class="block text-[11px] text-slate-500">${esc(u.id)} · ล็อกอินล่าสุด ${esc(when(u.lastLogin))}</span></span>
+        <span class="text-right shrink-0">${roleBadge(u.role)}<span class="block text-sm font-bold mt-1">${fmt(u.points)} ฿</span></span>
+      </button></li>`).join('') : '<li class="text-center text-slate-500 py-8">ไม่พบผู้ใช้</li>';
+    document.querySelectorAll('.user-row').forEach(b => b.addEventListener('click', () => openUser(b.dataset.id)));
+  });
+}
+$('userSearch').addEventListener('click', searchUsers);
+$('userQ').addEventListener('keydown', e => { if (e.key === 'Enter') searchUsers(); });
+
+async function openUser(id) {
+  selectedUser = id;
+  await run(async () => {
+    const d = await api('/users/' + encodeURIComponent(id));
+    const u = d.user;
+    $('userDetail').innerHTML = `
+      <div class="rounded-2xl border border-line bg-panel p-4">
+        <div class="flex items-center gap-3">${avatar(u, 'w-12 h-12')}
+          <div class="min-w-0"><p class="font-semibold truncate">${esc(u.name)}</p><p class="text-[11px] text-slate-500 break-all">${esc(u.id)}</p></div>
+        </div>
+        <div class="mt-3 rounded-xl bg-ink border border-line p-3 flex justify-between items-end">
+          <span class="text-sm text-slate-400">ยอดเงินคงเหลือ</span><span class="text-2xl font-extrabold text-amber-300">${fmt(u.points)} <span class="text-sm">บาท</span></span>
+        </div>
+
+        <p class="mt-4 text-xs font-medium text-slate-300">ยศ</p>
+        <div class="flex gap-2 mt-1.5">
+          <select id="roleSel" class="field" ${u.locked ? 'disabled' : ''}>
+            ${['member', 'reseller', 'admin'].map(r => `<option value="${r}" ${u.role === r ? 'selected' : ''}>${ROLE_TH[r]}${r === 'reseller' ? ` (ลด ${discountPct}%)` : ''}</option>`).join('')}
+          </select>
+          <button id="roleSave" class="btn shrink-0" ${u.locked ? 'disabled' : ''}>บันทึกยศ</button>
+        </div>
+        ${u.locked ? '<p class="text-[11px] text-slate-500 mt-1">บัญชีนี้ถูกล็อกเป็นแอดมินใน ADMIN_USER_IDS (แก้ได้ที่ Render)</p>' : ''}
+
+        <p class="mt-4 text-xs font-medium text-slate-300">เพิ่ม / หักเงิน</p>
+        <div class="grid grid-cols-2 gap-2 mt-1.5">
+          <input id="ptAmount" class="field" inputmode="numeric" placeholder="จำนวน (บาท)" autocomplete="off">
+          <input id="ptReason" class="field" placeholder="เหตุผล (บังคับ)" maxlength="200" autocomplete="off">
+          <button id="ptAdd" class="btn">+ เพิ่มเงิน</button>
+          <button id="ptSub" class="btn danger">− หักเงิน</button>
+        </div>
+
+        <p class="mt-4 text-xs font-medium text-slate-300">ความเคลื่อนไหวล่าสุด</p>
+        <ul class="mt-1.5 space-y-1.5 max-h-56 overflow-y-auto pr-1 text-sm">
+          ${d.ledger.length ? d.ledger.map(r => `<li class="flex justify-between gap-3 rounded-lg bg-ink border border-line px-3 py-2">
+            <span class="min-w-0"><span class="block">${esc(LEDGER_TH[r.type] || r.type)}</span><span class="block text-[11px] text-slate-500 truncate">${esc(when(r.createdAt))}${r.note ? ' · ' + esc(r.note) : ''}</span></span>
+            <span class="text-right shrink-0"><span class="block font-bold ${r.delta > 0 ? 'text-emerald-400' : 'text-rose-400'}">${r.delta > 0 ? '+' : ''}${fmt(r.delta)}</span><span class="block text-[11px] text-slate-500">คงเหลือ ${fmt(r.balanceAfter)}</span></span></li>`).join('') : '<li class="text-slate-500 text-center py-3">ยังไม่มีรายการ</li>'}
+        </ul>
+
+        <p class="mt-4 text-xs font-medium text-slate-300">ออเดอร์ล่าสุด</p>
+        <ul class="mt-1.5 space-y-1.5 max-h-56 overflow-y-auto pr-1 text-sm">
+          ${d.orders.length ? d.orders.map(o => `<li class="flex justify-between gap-3 rounded-lg bg-ink border border-line px-3 py-2">
+            <span class="min-w-0"><span class="block truncate">${esc(GAME_TH[o.game] || o.game)} · ${esc(o.packageName)}</span><span class="block text-[11px] text-slate-500">#${esc(o.id.slice(-6).toUpperCase())} · ${esc(when(o.createdAt))} · ${o.payMethod === 'balance' ? 'เงินในบัญชี' : 'ซอง'}</span></span>
+            <span class="text-right shrink-0"><span class="block font-bold">${fmt(o.price)} ฿</span><span class="badge ${STATUS_CLR[o.status] || ''}">${esc(STATUS_TH[o.status] || o.status)}</span></span></li>`).join('') : '<li class="text-slate-500 text-center py-3">ยังไม่มีออเดอร์</li>'}
+        </ul>
+      </div>`;
+    $('roleSave').addEventListener('click', () => run(async () => {
+      await api(`/users/${u.id}/role`, { role: $('roleSel').value });
+      toast('บันทึกยศแล้ว'); await openUser(u.id); searchUsers();
+    }));
+    const adjust = (sign) => run(async () => {
+      const n = Number($('ptAmount').value.replace(/[,\s]/g, ''));
+      const reason = $('ptReason').value.trim();
+      if (!Number.isInteger(n) || n <= 0) throw new Error('กรอกจำนวนเงินเป็นจำนวนเต็มบวก');
+      if (!reason) throw new Error('กรุณาใส่เหตุผล');
+      if (!confirm(`${sign > 0 ? 'เพิ่ม' : 'หัก'}เงิน ${fmt(n)} บาท ${sign > 0 ? 'ให้' : 'ของ'} ${u.name}\nเหตุผล: ${reason}\n\nยืนยัน?`)) return;
+      const r = await api(`/users/${u.id}/points`, { delta: sign * n, reason });
+      toast(`สำเร็จ ยอดคงเหลือ ${fmt(r.balance)} บาท`); await openUser(u.id); searchUsers();
+    });
+    $('ptAdd').addEventListener('click', () => adjust(1));
+    $('ptSub').addEventListener('click', () => adjust(-1));
+    searchUsers();
+  });
+}
+
+/* ---------- แพ็กเกจ ---------- */
+let pkgGame = 'opm', allPkgs = [];
+document.querySelectorAll('.pk-game').forEach(b => b.addEventListener('click', () => {
+  pkgGame = b.dataset.game;
+  document.querySelectorAll('.pk-game').forEach(x => x.classList.toggle('tab', false));
+  renderPackages();
+}));
+async function loadPackages() {
+  await run(async () => { const d = await api('/packages'); allPkgs = d.packages; discountPct = d.discountPct; $('discPct').textContent = d.discountPct; renderPackages(); });
+}
+const resPrice = p => Math.max(1, Math.round(p * (100 - discountPct) / 100));
+function pkgFormHTML(p, isNew) {
+  return `<div class="pkg-row rounded-xl border border-line bg-panel p-3" data-id="${p.id || ''}">
+    <div class="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end">
+      <label class="sm:col-span-3 text-[11px] text-slate-500">ชื่อแพ็กเกจ<input class="field f-name" value="${esc(p.name)}" maxlength="100" placeholder="เช่น 1000 Robux"></label>
+      <label class="sm:col-span-2 text-[11px] text-slate-500">จำนวนหน่วย<input class="field f-qty" inputmode="numeric" value="${esc(p.qty)}" placeholder="1000"></label>
+      <label class="sm:col-span-2 text-[11px] text-slate-500">ราคาปกติ (฿)<input class="field f-price" inputmode="numeric" value="${esc(p.price)}" placeholder="339"></label>
+      <div class="sm:col-span-2 text-[11px] text-slate-500">ราคา Reseller<p class="f-res pt-2 text-sm font-semibold text-amber-300">${p.price ? fmt(resPrice(p.price)) + ' ฿' : '-'}</p></div>
+      <label class="sm:col-span-1 text-[11px] text-slate-500">ลำดับ<input class="field f-sort" inputmode="numeric" value="${esc(p.sort ?? 0)}"></label>
+      <label class="sm:col-span-2 text-[11px] text-slate-500">ป้าย (ไม่บังคับ)<input class="field f-tag" value="${esc(p.tag || '')}" maxlength="40" placeholder="เช่น ขายดี"></label>
+      <label class="sm:col-span-3 text-[11px] text-slate-500">หมายเหตุใต้ตัวเลข<input class="field f-note" value="${esc(p.note || '')}" maxlength="40" placeholder="ไม่บังคับ"></label>
+      <label class="sm:col-span-2 flex items-center gap-2 text-sm text-slate-300 pb-2"><input type="checkbox" class="f-active h-4 w-4 accent-amber-500" ${p.active !== false ? 'checked' : ''}> เปิดขาย</label>
+      <div class="sm:col-span-7 flex gap-2 justify-end">
+        <button type="button" class="btn p-save">${isNew ? '+ เพิ่มแพ็กเกจ' : 'บันทึก'}</button>
+        ${isNew ? '' : '<button type="button" class="btn danger p-del">ลบ</button>'}
+      </div>
+    </div></div>`;
+}
+function renderPackages() {
+  document.querySelectorAll('.pk-game').forEach(b => { b.style.borderColor = b.dataset.game === pkgGame ? '#f59e0b' : ''; b.style.color = b.dataset.game === pkgGame ? '#fbbf24' : ''; });
+  const list = allPkgs.filter(p => p.game === pkgGame);
+  const nextSort = list.length ? Math.max(...list.map(p => p.sort)) + 1 : 0;
+  $('pkgList').innerHTML = list.map(p => pkgFormHTML(p, false)).join('') +
+    '<p class="text-xs font-medium text-slate-300 pt-3">เพิ่มแพ็กเกจใหม่</p>' + pkgFormHTML({ game: pkgGame, name: '', qty: '', price: '', sort: nextSort, active: true }, true);
+  document.querySelectorAll('.pkg-row').forEach(row => {
+    const read = () => ({
+      game: pkgGame, name: row.querySelector('.f-name').value.trim(), qty: Number(row.querySelector('.f-qty').value.replace(/[,\s]/g, '')),
+      price: Number(row.querySelector('.f-price').value.replace(/[,\s]/g, '')), sort: Number(row.querySelector('.f-sort').value || 0),
+      tag: row.querySelector('.f-tag').value.trim(), note: row.querySelector('.f-note').value.trim(), active: row.querySelector('.f-active').checked
+    });
+    row.querySelector('.f-price').addEventListener('input', () => { const v = Number(row.querySelector('.f-price').value.replace(/[,\s]/g, '')); row.querySelector('.f-res').textContent = v > 0 ? fmt(resPrice(v)) + ' ฿' : '-'; });
+    row.querySelector('.p-save').addEventListener('click', () => run(async () => {
+      const id = row.dataset.id; const body = read();
+      await api(id ? '/packages/' + id : '/packages', body);
+      toast(id ? 'บันทึกแล้ว' : 'เพิ่มแพ็กเกจแล้ว'); await loadPackages();
+    }));
+    const del = row.querySelector('.p-del');
+    if (del) del.addEventListener('click', () => run(async () => {
+      if (!confirm(`ลบแพ็กเกจ "${row.querySelector('.f-name').value}" ?\n(ออเดอร์เก่าไม่ได้รับผลกระทบ ถ้าแค่อยากหยุดขายชั่วคราว ให้ติ๊ก "เปิดขาย" ออกแทน)`)) return;
+      await api(`/packages/${row.dataset.id}/delete`, {});
+      toast('ลบแล้ว'); await loadPackages();
+    }));
+  });
+}
+
+/* ---------- ออเดอร์ ---------- */
+async function loadOrders() {
+  await run(async () => {
+    const q = new URLSearchParams({ q: $('orderQ').value.trim(), status: $('orderStatus').value });
+    const d = await api('/orders?' + q);
+    $('orderList').innerHTML = d.orders.length ? d.orders.map(o => `
+      <li class="rounded-xl border border-line bg-panel p-3 flex justify-between gap-3 text-sm">
+        <div class="min-w-0">
+          <p class="font-medium truncate">#${esc(o.id.slice(-6).toUpperCase())} · ${esc(GAME_TH[o.game] || o.game)} · ${esc(o.packageName)}</p>
+          <p class="text-[11px] text-slate-500 truncate">${esc(when(o.createdAt))} · ${o.userId ? esc(o.userName) + ' (' + esc(o.userId) + ')' : 'ไม่ได้ล็อกอิน'} · ${o.payMethod === 'balance' ? 'เงินในบัญชี' + (o.paid ? ' (หักแล้ว)' : '') : 'ซองอั่งเปา'}${o.handledBy ? ' · โดย ' + esc(o.handledBy) : ''}</p>
+        </div>
+        <div class="text-right shrink-0"><p class="font-bold">${fmt(o.price)} ฿${o.basePrice && o.basePrice !== o.price ? ` <s class="text-[11px] font-normal text-slate-500">${fmt(o.basePrice)}</s>` : ''}</p><span class="badge ${STATUS_CLR[o.status] || ''}">${esc(STATUS_TH[o.status] || o.status)}</span></div>
+      </li>`).join('') : '<li class="text-center text-slate-500 py-8">ไม่พบออเดอร์</li>';
+  });
+}
+$('orderSearch').addEventListener('click', loadOrders);
+$('orderQ').addEventListener('keydown', e => { if (e.key === 'Enter') loadOrders(); });
+$('orderStatus').addEventListener('change', loadOrders);
+
+/* ---------- บันทึก ---------- */
+async function loadLog() {
+  await run(async () => {
+    const d = await api('/log');
+    $('logList').innerHTML = d.log.length ? d.log.map(l => `
+      <li class="rounded-xl border border-line bg-panel p-3 text-sm">
+        <p><span class="font-semibold text-amber-300">${esc(l.action)}</span> <span class="text-[11px] text-slate-500">${esc(when(l.createdAt))}</span></p>
+        <p class="text-slate-300 break-words">${esc(l.detail)}</p><p class="text-[11px] text-slate-500">โดย ${esc(l.actor)}</p>
+      </li>`).join('') : '<li class="text-center text-slate-500 py-8">ยังไม่มีบันทึก</li>';
+  });
+}
+
+boot();
+</script>
+</body>
+</html>
