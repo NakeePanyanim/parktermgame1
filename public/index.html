@@ -44,6 +44,10 @@ tailwind.config = {
   .game-tab { text-align: left; border: 1px solid #25252f; background: rgba(18,18,26,.8); border-radius: 1.25rem; padding: .95rem 1.1rem; transition: .15s; width: 100%; }
   .game-tab:hover { border-color: #4a4a5a; }
   .game-tab.active { border-color: #f59e0b; background: linear-gradient(160deg,rgba(245,158,11,.14),rgba(239,68,68,.08)); box-shadow: 0 0 0 1px #f59e0b, 0 12px 30px -12px rgba(245,158,11,.45); }
+  .pay-card { border: 1px solid #25252f; background: rgba(10,10,15,.6); border-radius: 1rem; padding: .8rem 1rem; transition: .15s; height: 100%; }
+  .pay-opt:hover .pay-card { border-color: #4a4a5a; }
+  .pay-opt input:checked + .pay-card { border-color: #f59e0b; background: rgba(245,158,11,.08); box-shadow: 0 0 0 1px #f59e0b; }
+  .pay-opt input:focus-visible + .pay-card { outline: 2px solid #fbbf24; outline-offset: 2px; }
   .acc-tab.on { border-color: #f59e0b; color: #fbbf24; background: rgba(245,158,11,.08); }
   .game-tab:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
   details > summary { list-style: none; cursor: pointer; }
@@ -232,6 +236,15 @@ tailwind.config = {
         </div>
         <div id="packageGrid" class="grid grid-cols-2 sm:grid-cols-3 gap-3" role="radiogroup" aria-label="แพ็กเกจคูปอง"></div>
         <p class="err text-xs text-red-400 mt-2 hidden" data-for="package">กรุณาเลือกแพ็กเกจ</p>
+        <div id="customBox" class="hidden mt-4">
+          <label for="customAmount" class="block text-xs font-medium text-slate-300 mb-1.5">หรือกรอกจำนวนเงินเอง (10 - 20,000 บาท) <span class="text-red-400">*</span></label>
+          <div class="flex items-center gap-2">
+            <input type="text" id="customAmount" inputmode="numeric" autocomplete="off" placeholder="เช่น 15" class="field">
+            <span class="text-slate-400 shrink-0">บาท</span>
+          </div>
+          <p id="customHint" class="text-xs text-amber-300 mt-1.5"></p>
+          <p class="err text-xs text-red-400 mt-1 hidden" data-for="customAmount">กรอกจำนวนเต็ม 10 - 20,000 บาท</p>
+        </div>
       </section>
 
       <!-- Step 3 -->
@@ -239,10 +252,30 @@ tailwind.config = {
         <div class="flex items-center gap-3 mb-4">
           <span class="grid place-items-center w-8 h-8 rounded-full grad-btn text-sm font-bold text-white">3</span>
           <div>
-            <h2 class="font-semibold">ชำระเงินด้วยซองของขวัญ TrueMoney</h2>
-            <p class="text-xs text-slate-500">สร้างซองในแอป แล้วนำลิงก์มาวางด้านล่าง</p>
+            <h2 id="step3Title" class="font-semibold">ชำระเงินด้วยซองของขวัญ TrueMoney</h2>
+            <p id="step3Hint" class="text-xs text-slate-500">สร้างซองในแอป แล้วนำลิงก์มาวางด้านล่าง</p>
           </div>
         </div>
+
+        <!-- วิธีชำระเงิน (แสดงเมื่อล็อกอิน และไม่ใช่การเติม Point) -->
+        <div id="payBox" class="hidden grid sm:grid-cols-2 gap-3 mb-4" role="radiogroup" aria-label="วิธีชำระเงิน">
+          <label class="pay-opt block cursor-pointer">
+            <input type="radio" name="pay" value="voucher" class="sr-only" checked>
+            <div class="pay-card">
+              <p class="font-semibold text-sm">🎟️ ซองอั่งเปา TrueMoney</p>
+              <p class="text-xs text-slate-500 mt-0.5">สร้างซองแล้วส่งลิงก์</p>
+            </div>
+          </label>
+          <label class="pay-opt block cursor-pointer">
+            <input type="radio" name="pay" value="balance" class="sr-only">
+            <div class="pay-card">
+              <p class="font-semibold text-sm">👛 เงินในบัญชี</p>
+              <p id="payBalSub" class="text-xs text-slate-500 mt-0.5">คงเหลือ 0 บาท</p>
+            </div>
+          </label>
+        </div>
+
+        <div id="voucherBox">
 
         <div class="rounded-2xl border border-amber-400/20 bg-amber-400/5 p-4 mb-4">
           <ol class="space-y-2.5 text-sm text-slate-300">
@@ -259,6 +292,16 @@ tailwind.config = {
         </div>
         <p class="err text-xs text-red-400 mt-1 hidden" data-for="voucherLink">ลิงก์ซองไม่ถูกต้อง ต้องเป็นลิงก์จาก gift.truemoney.com</p>
         <p class="text-xs text-slate-500 mt-2">ซองที่ใช้แล้ว หรือยอดไม่ตรง อาจไม่สามารถดำเนินการได้ โปรดตรวจสอบก่อนส่ง</p>
+        </div>
+
+        <div id="balanceBox" class="hidden">
+          <div class="rounded-2xl border border-amber-400/20 bg-amber-400/5 p-4 text-sm text-slate-300 space-y-1.5">
+            <p>ใช้เงินในบัญชี <b id="balPrice" class="text-white">0</b> บาท (คงเหลือ <b id="balHave" class="text-white">0</b> บาท)</p>
+            <p class="text-xs text-slate-500">ยังไม่หักเงินตอนกดยืนยัน จะหักเมื่อแอดมินตรวจสอบและกดรับออเดอร์ ถ้าแอดมินไม่รับออเดอร์ จะไม่มีการหักเงิน</p>
+            <p id="balWarn" class="hidden text-xs font-medium text-rose-400"></p>
+          </div>
+          <p class="err text-xs text-red-400 mt-1 hidden" data-for="pay">ยอดเงินในบัญชีไม่พอ กรุณาเติมเงินก่อนหรือเลือกจ่ายด้วยซองอั่งเปา</p>
+        </div>
       </section>
     </div>
 
@@ -479,6 +522,7 @@ const GAMES = {
     step2Hint: '1 Point = 1 บาท ไม่มีวันหมดอายุ',
     icon: '<span class="text-xl leading-none font-bold text-amber-300">฿</span>', unitLabel: 'Point', perLabel: 'อัตราแลก', perMult: 1, perSuffix: 'Point',
     fields: [],
+    custom: { min: 10, max: 20000 },
     packages: [
       { name: '50 Point',   qty: 50,   price: 50 },
       { name: '100 Point',  qty: 100,  price: 100 },
@@ -498,6 +542,8 @@ const getVal = key => { const v = $(key).value.trim(); return key === 'username'
 let game = 'opm';
 let selected = null;
 let me = null, authEnabled = false;
+let payMethod = 'voucher';
+function currentPay() { return (me && game !== 'points' && payMethod === 'balance') ? 'balance' : 'voucher'; }
 
 const grid = $('packageGrid');
 function renderPackages() {
@@ -523,7 +569,11 @@ function renderPackages() {
         ${saving > 0 ? `<span class="inline-block mt-2 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5">ถูกลง ~${saving}%</span>` : `<span class="inline-block mt-2 text-[10px] text-transparent">.</span>`}
         ${p.tag ? `<span class="absolute -top-2 left-3 text-[10px] font-bold text-black bg-amber-400 rounded-full px-2.5 py-0.5">${p.tag}</span>` : ''}
       </div>`;
-    label.querySelector('input').addEventListener('change', () => { selected = p; updateSummary(); clearErr('package'); });
+    label.querySelector('input').addEventListener('change', () => {
+      selected = p;
+      if (g.custom) $('customAmount').value = p.qty;
+      updateSummary(); clearErr('package'); clearErr('customAmount');
+    });
     grid.appendChild(label);
   });
 }
@@ -538,19 +588,59 @@ function updateSummary() {
     ['เกม', g.name],
     ...g.fields.map(f => [f.label, getVal(f.key) || '-']),
     ['แพ็กเกจ', selected ? selected.name : 'ยังไม่ได้เลือก'],
+    ...(game !== 'points' ? [['ชำระด้วย', currentPay() === 'balance' ? 'เงินในบัญชี' : 'ซองอั่งเปา']] : []),
     [g.perLabel, selected ? (unit(selected) * g.perMult).toFixed(2) + ' ฿' : '-']
   ];
   $('sumList').innerHTML = rows.map(([k, v]) =>
     `<div class="flex justify-between gap-3"><dt class="text-slate-500">${esc(k)}</dt><dd class="font-medium text-right break-all">${esc(v)}</dd></div>`).join('');
+  if (g.custom) {
+    $('customHint').textContent = selected
+      ? `ต้องสร้างซองมูลค่า ${fmt(selected.price)} บาท พอดี (1 Point = 1 บาท)`
+      : 'พิมพ์จำนวนเงิน ระบบจะบอกมูลค่าซองที่ต้องสร้าง';
+  }
+  renderPay();
 }
+
+function renderPay() {
+  const show = !!me && game !== 'points';
+  if (!show) payMethod = 'voucher';
+  $('payBox').classList.toggle('hidden', !show);
+  const radio = document.querySelector(`input[name="pay"][value="${payMethod}"]`);
+  if (radio) radio.checked = true;
+  const bal = me ? me.points : 0, price = selected ? selected.price : 0;
+  $('payBalSub').textContent = `คงเหลือ ${fmt(bal)} บาท`;
+  const isBal = currentPay() === 'balance';
+  $('voucherBox').classList.toggle('hidden', isBal);
+  $('balanceBox').classList.toggle('hidden', !isBal);
+  $('step3Title').textContent = isBal ? 'ชำระด้วยเงินในบัญชี' : 'ชำระเงินด้วยซองของขวัญ TrueMoney';
+  $('step3Hint').textContent = isBal ? 'ไม่หักเงินทันที จะหักเมื่อแอดมินกดรับออเดอร์' : 'สร้างซองในแอป แล้วนำลิงก์มาวางด้านล่าง';
+  $('balPrice').textContent = fmt(price);
+  $('balHave').textContent = fmt(bal);
+  const warn = $('balWarn');
+  warn.classList.toggle('hidden', !(isBal && price > bal));
+  if (isBal && price > bal) warn.textContent = `ยอดเงินไม่พอ ขาดอีก ${fmt(price - bal)} บาท`;
+}
+document.querySelectorAll('input[name="pay"]').forEach(r => r.addEventListener('change', () => { payMethod = r.value; clearErr('pay'); updateSummary(); }));
+
+$('customAmount').addEventListener('input', () => {
+  const g = GAMES[game];
+  const raw = $('customAmount').value.replace(/[,\s]/g, '');
+  document.querySelectorAll('input[name="pkg"]').forEach(r => { r.checked = false; });
+  clearErr('customAmount');
+  const n = /^\d+$/.test(raw) ? Number(raw) : NaN;
+  selected = (g.custom && n >= g.custom.min && n <= g.custom.max) ? { name: `${n} Point`, qty: n, price: n, custom: true } : null;
+  updateSummary();
+});
 const FIELD_KEYS = ['uid', 'sid', 'ign', 'username', 'displayName'];
 FIELD_KEYS.forEach(id => $(id).addEventListener('input', updateSummary));
 
 function setGame(key) {
   if (!GAMES[key]) return;
   if (key === 'points' && !me) return;
-  game = key; selected = null;
+  game = key; selected = null; payMethod = 'voucher';
   const g = GAMES[key];
+  $('customBox').classList.toggle('hidden', !g.custom);
+  $('customAmount').value = '';
   document.querySelectorAll('.game-tab').forEach(b => {
     const on = b.dataset.game === key;
     b.classList.toggle('active', on);
@@ -584,11 +674,12 @@ function clearErr(key) {
 function validate() {
   const g = GAMES[game];
   let ok = true, first = null;
-  const mark = (key, cond) => { if (!cond) { showErr(key); ok = false; if (!first) first = $(key) || grid; } };
+  const mark = (key, cond) => { if (!cond) { showErr(key); ok = false; if (!first) first = $(key) || $(key === 'pay' ? 'balanceBox' : 'packageGrid'); } };
   g.fields.forEach(f => { const v = getVal(f.key); mark(f.key, f.valid ? f.valid(v) : v.length > 0); });
   mark('facebook', $('facebook').value.trim().length > 0);
-  mark('package', !!selected);
-  mark('voucherLink', VOUCHER_RE.test($('voucherLink').value.trim()));
+  if (g.custom) mark('customAmount', !!selected); else mark('package', !!selected);
+  if (currentPay() === 'balance') mark('pay', !!selected && me.points >= selected.price);
+  else mark('voucherLink', VOUCHER_RE.test($('voucherLink').value.trim()));
   if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
   return ok;
 }
@@ -633,8 +724,10 @@ async function submitOrder(e) {
     facebook: $('facebook').value.trim(),
     packageName: selected.name,
     expectedPrice: String(selected.price),
-    voucherLink: $('voucherLink').value.trim()
+    payMethod: currentPay()
   };
+  if (payload.payMethod === 'voucher') payload.voucherLink = $('voucherLink').value.trim();
+  if (g.custom) payload.amount = selected.price;
   g.fields.forEach(f => { payload[f.key] = getVal(f.key); });
   const snapshot = { ...payload, price: selected.price };
 
@@ -650,7 +743,8 @@ async function submitOrder(e) {
       beginTracking(result.orderId, snapshot);
       $('topupForm').reset();
       document.querySelectorAll('input[name="pkg"]').forEach(r => r.checked = false);
-      selected = null; updateSummary();
+      selected = null; updateSummary(); // updateSummary -> renderPay ตั้งปุ่มวิธีชำระเงินกลับตามที่เลือกไว้
+      if (result.needLogin) loadMe();
     } else {
       setStatus('err', result.message || 'ไม่สามารถดำเนินการได้ กรุณาตรวจสอบข้อมูลอีกครั้ง');
     }
@@ -696,21 +790,37 @@ function stepHTML(state, text) {
   return `<li class="flex items-center gap-3 text-sm ${color}">${dot}<span>${text}</span></li>`;
 }
 
+function stepsFor(c) {
+  return c.payMethod === 'balance'
+    ? ['ส่งออเดอร์แล้ว', 'รอแอดมินตรวจสอบ', 'รับออเดอร์ หักเงินแล้ว รอเติมตามคิว', 'เติมเสร็จสิ้น']
+    : STEPS;
+}
+function viewFor(c) {
+  const v = { ...(VIEW[c.status] || VIEW.checking) };
+  if (c.payMethod === 'balance') {
+    if (c.status === 'checking') { v.title = 'รอแอดมินตรวจสอบ'; v.desc = 'ส่งออเดอร์แล้ว ยังไม่มีการหักเงิน จะหักเมื่อแอดมินรับออเดอร์ กรุณารอ5นาทีถึง1ชั่วโมง หน้านี้จะอัปเดตสถานะให้อัตโนมัติ'; }
+    if (c.status === 'received') { v.title = 'รับออเดอร์แล้ว หักเงินแล้ว'; v.desc = 'แอดมินรับออเดอร์และหักเงินในบัญชีเรียบร้อยแล้ว กำลังเติมให้ตามคิวใช้เวลา5นาทีถึง1ชั่วโมง'; }
+    if (c.status === 'insufficient') { v.title = 'ออเดอร์ไม่ถูกดำเนินการ'; v.desc = 'แอดมินไม่รับออเดอร์นี้ เงินในบัญชีไม่ถูกหัก (หรือถูกคืนให้แล้ว) หากสงสัยติดต่อแอดมินทาง Facebook พร้อมแจ้งเลขออเดอร์'; }
+  }
+  if (c.game === 'points' && c.status === 'done') v.desc = 'เติมเงินเข้าบัญชีเรียบร้อยแล้ว ตรวจสอบยอดได้ที่ปุ่มบัญชีมุมขวาบน';
+  return v;
+}
+
 function renderTracker() {
   if (!current) return;
-  const v = VIEW[current.status] || VIEW.checking;
+  const v = viewFor(current);
+  const steps = stepsFor(current);
   $('trkIcon').className = `mx-auto w-16 h-16 rounded-full border grid place-items-center mb-4 text-3xl ${v.tone}`;
   $('trkIcon').textContent = v.icon;
   $('trkTitle').textContent = v.title;
-  $('trkDesc').textContent = (current.game === 'points' && current.status === 'done')
-    ? 'เติม Point เข้าบัญชีเรียบร้อยแล้ว ตรวจสอบยอดได้ที่ปุ่มบัญชีมุมขวาบน' : v.desc;
+  $('trkDesc').textContent = v.desc;
 
   let html = '';
   if (current.status === 'insufficient') {
-    html = stepHTML('done', STEPS[0]) + stepHTML('done', STEPS[1]) + stepHTML('error', 'ยอดเงินไม่เพียงพอ');
+    html = stepHTML('done', steps[0]) + stepHTML('done', steps[1]) + stepHTML('error', current.payMethod === 'balance' ? 'ออเดอร์ไม่ถูกดำเนินการ' : 'ยอดเงินไม่เพียงพอ');
   } else {
     const idx = STEP_INDEX[current.status] ?? 1;
-    html = STEPS.map((t, i) => stepHTML(i < idx || (current.status === 'done' && i <= idx) ? 'done' : i === idx ? 'active' : 'pending', t)).join('');
+    html = steps.map((t, i) => stepHTML(i < idx || (current.status === 'done' && i <= idx) ? 'done' : i === idx ? 'active' : 'pending', t)).join('');
   }
   $('trkSteps').innerHTML = html;
 
@@ -719,7 +829,7 @@ function renderTracker() {
   $('modalSummary').innerHTML =
     row('หมายเลขออเดอร์', '#' + esc(shortId(current.id))) + row('เกม', esc(cg.name)) +
     cg.fields.map(f => current[f.key] ? row(f.label, esc(current[f.key])) : '').join('') +
-    row('แพ็กเกจ', esc(current.packageName)) + row('ยอดชำระ', fmt(current.price) + ' ฿');
+    row('แพ็กเกจ', esc(current.packageName)) + row('ชำระด้วย', current.payMethod === 'balance' ? 'เงินในบัญชี' : 'ซองอั่งเปา') + row('ยอดชำระ', fmt(current.price) + ' ฿');
   $('trkNote').textContent = FINAL.includes(current.status)
     ? 'เก็บหมายเลขออเดอร์ไว้อ้างอิงกับแอดมินได้'
     : 'หน้านี้อัปเดตสถานะอัตโนมัติ ปิดหน้าต่างได้ แล้วกลับมาดูใหม่ที่แถบ "ออเดอร์ล่าสุด"';
@@ -731,7 +841,7 @@ function renderBar() {
   bar.classList.remove('hidden');
   $('lastOrderNo').textContent = shortId(current.id);
   $('lastOrderIcon').textContent = (VIEW[current.status] || VIEW.checking).icon;
-  $('lastOrderText').textContent = BAR_TEXT[current.status] || BAR_TEXT.checking;
+  $('lastOrderText').textContent = (current.payMethod === 'balance' && current.status === 'checking') ? 'รอแอดมินตรวจสอบ' : (BAR_TEXT[current.status] || BAR_TEXT.checking);
 }
 
 function openModal() { renderTracker(); $('modal').classList.remove('hidden'); }
@@ -746,15 +856,17 @@ async function tick() {
     if (res.status === 404) { stopPoll(); clearTrack(); current = null; renderBar(); closeModal(); return; }
     const d = await res.json();
     if (d.success && d.status) {
+      const changed = current.status !== d.status;
       current.status = d.status;
       saveTrack(); renderTracker(); renderBar();
-      if (FINAL.includes(d.status)) { stopPoll(); if (current.game === 'points') loadMe(); }
+      if (changed && (current.game === 'points' || current.payMethod === 'balance')) loadMe(); // ยอดเงินอาจเปลี่ยน (เติม/หัก/คืน)
+      if (FINAL.includes(d.status)) stopPoll();
     }
   } catch (e) { /* เน็ตหลุดชั่วคราว ลองใหม่รอบถัดไป */ }
 }
 
 function beginTracking(orderId, snap) {
-  current = { id: orderId, status: 'checking', game: snap.game, packageName: snap.packageName, price: snap.price };
+  current = { id: orderId, status: 'checking', game: snap.game, payMethod: snap.payMethod || 'voucher', packageName: snap.packageName, price: snap.price };
   GAMES[snap.game].fields.forEach(f => { current[f.key] = snap[f.key]; });
   saveTrack(); renderBar(); openModal(); startPoll();
 }
@@ -805,6 +917,7 @@ function renderAuth() {
   $('pointsWho').textContent = me ? me.name : '';
   if (!me && game === 'points') setGame('opm');
   if ($('accModal') && !$('accModal').classList.contains('hidden')) fillAcc();
+  updateSummary();
 }
 
 let accTab = 'gameOrders', accData = null;
