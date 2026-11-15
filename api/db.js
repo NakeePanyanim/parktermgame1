@@ -2,10 +2,10 @@
 // ถ้าไม่ได้ตั้ง TURSO_DATABASE_URL จะใช้ไฟล์ local.db ในเครื่อง (สำหรับทดสอบบนคอมตัวเอง)
 const { createClient } = require('@libsql/client');
 
-const db = createClient({
-    url: process.env.TURSO_DATABASE_URL || 'file:local.db',
-    authToken: process.env.TURSO_AUTH_TOKEN
-});
+// .trim() กันช่องว่าง/ขึ้นบรรทัดใหม่ที่ติดมาตอนก๊อปวางค่าใน Render (สาเหตุ "invalid header value")
+const url = (process.env.TURSO_DATABASE_URL || '').trim() || 'file:local.db';
+const authToken = (process.env.TURSO_AUTH_TOKEN || '').trim() || undefined;
+const db = createClient({ url, authToken });
 
 async function initDb() {
     await db.batch([
