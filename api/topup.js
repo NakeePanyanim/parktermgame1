@@ -485,7 +485,9 @@ app.get('/api/order/:id', statusLimiter, (req, res) => {
         await importLegacyOrders();
         console.log(`โหลดออเดอร์จากฐานข้อมูล ${Object.keys(orders).length} รายการ | ล็อกอิน Discord: ${AUTH_ON ? 'เปิด' : 'ปิด (ยังไม่ตั้งค่า)'}`);
     } catch (e) {
-        console.error('เชื่อมต่อฐานข้อมูลไม่สำเร็จ (ตรวจ TURSO_DATABASE_URL / TURSO_AUTH_TOKEN):', e.message);
+        const tok = (process.env.TURSO_AUTH_TOKEN || '').trim();
+        const msg = tok ? String(e.message).split(tok).join('***') : e.message; // ไม่พิมพ์ Token ลง Logs
+        console.error('เชื่อมต่อฐานข้อมูลไม่สำเร็จ (ตรวจ TURSO_DATABASE_URL / TURSO_AUTH_TOKEN):', msg);
         process.exit(1);
     }
     client.login(BOT_TOKEN)
