@@ -4,6 +4,7 @@ const rateLimit = require('express-rate-limit');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const db = require('./db');
 const {
     Client, GatewayIntentBits, Events, MessageFlags,
     ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder
@@ -15,6 +16,14 @@ const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 // (ไม่บังคับ) ไอดี Discord ของคนที่กดปุ่มได้ คั่นด้วยคอมมา ถ้าไม่ใส่ = ใครเห็นช่องก็กดได้
 const ADMIN_IDS = (process.env.ADMIN_USER_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
 const PORT = process.env.PORT || 3000;
+// ---- ระบบล็อกอิน Discord (ไม่ตั้งค่า = ปิดระบบล็อกอิน เว็บยังเติมผ่านซองได้ตามปกติ) ----
+const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
+const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
+const SESSION_SECRET = process.env.SESSION_SECRET;
+const BASE_URL = (process.env.BASE_URL || '').replace(/\/+$/, ''); // เช่น https://ชื่อเว็บ.onrender.com
+const AUTH_ON = !!(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET && SESSION_SECRET && BASE_URL);
+const REDIRECT_URI = BASE_URL + '/auth/discord/callback';
+const IS_HTTPS = BASE_URL.startsWith('https://');
 
 if (!BOT_TOKEN || !CHANNEL_ID) {
     console.error('ไม่พบ DISCORD_BOT_TOKEN หรือ DISCORD_CHANNEL_ID ในไฟล์ .env');
@@ -66,27 +75,43 @@ const GAMES = {
             '2000 Robux': 669,
             '5000 Robux': 1690
         }
+    },
+    // เติม Point เข้าบัญชี (1 Point = 1 บาท) ต้องล็อกอินก่อน
+    points: {
+        name: 'เติม Point',
+        requireLogin: true,
+        fields: [],
+        packages: {
+            '50 Point': 50,
+            '100 Point': 100,
+            '200 Point': 200,
+            '300 Point': 300,
+            '500 Point': 500,
+            '1000 Point': 1000,
+            '2000 Point': 2000
+        }
     }
 };
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
 // ================================================================
 
-// ---------- เก็บออเดอร์ลงไฟล์ orders.json ----------
-const ORDERS_FILE = path.join(__dirname, 'orders.json');
+// ---------- ออเดอร์: เก็บใน Turso (โหลดเข้าหน่วยความจำตอนเริ่มเซิร์ฟเวอร์) ----------
+const ORDERS_FILE = path.join(__dirname, 'orders.json'); // ไฟล์เก่า ใช้นำเข้าครั้งเดียว
 let orders = {};
-try {
-    if (fs.existsSync(ORDERS_FILE)) orders = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
-} catch (e) {
-    console.error('อ่าน orders.json ไม่สำเร็จ เริ่มด้วยรายการว่าง:', e.message);
-    orders = {};
-}
-function saveOrders() {
+const saveOrder = (o) => db.saveOrder(o).catch(e => console.error('บันทึกออเดอร์ไม่สำเร็จ:', o.id, e.message));
+
+async function importLegacyOrders() {
+    if (!fs.existsSync(ORDERS_FILE)) return;
     try {
-        const tmp = ORDERS_FILE + '.tmp';
-        fs.writeFileSync(tmp, JSON.stringify(orders, null, 2));
-        fs.renameSync(tmp, ORDERS_FILE);
+        const old = JSON.parse(fs.readFileSync(ORDERS_FILE, 'utf8'));
+        let n = 0;
+        for (const o of Object.values(old)) {
+            if (o && o.id && !orders[o.id]) { orders[o.id] = o; await db.saveOrder(o); n++; }
+        }
+        fs.renameSync(ORDERS_FILE, ORDERS_FILE + '.imported');
+        console.log(`นำเข้าออเดอร์จาก orders.json แล้ว ${n} รายการ`);
     } catch (e) {
-        console.error('บันทึก orders.json ไม่สำเร็จ:', e.message);
+        console.error('นำเข้า orders.json ไม่สำเร็จ (ข้ามไป):', e.message);
     }
 }
 
@@ -123,7 +148,9 @@ const STATUS = {
 function buildMessage(o) {
     const s = STATUS[o.status];
     const gameKey = GAMES[o.game] ? o.game : 'opm'; // ออเดอร์เก่าที่ไม่มี game = One Punch Man
-    const accountFields = gameKey === 'roblox'
+    const accountFields = gameKey === 'points'
+        ? [{ name: '👤 บัญชีเว็บ (Discord)', value: `${code(o.userName)} ${code(o.userId)}`, inline: false }]
+        : gameKey === 'roblox'
         ? [
             { name: '👤 Username', value: code(o.username), inline: true },
             { name: '🏷️ Display Name', value: code(o.displayName), inline: true }
@@ -140,6 +167,7 @@ function buildMessage(o) {
             { name: '📌 สถานะ', value: s.text, inline: false },
             { name: '🕹️ เกม', value: `**${GAMES[gameKey].name}**`, inline: false },
             ...accountFields,
+            ...(o.userId && gameKey !== 'points' ? [{ name: '🔗 บัญชีเว็บ', value: `<@${o.userId}>`, inline: true }] : []),
             { name: '📘 Facebook', value: o.facebook || '-', inline: false },
             { name: '📦 แพ็กเกจ', value: o.packageName, inline: true },
             { name: '💰 ยอดที่ต้องได้รับ', value: `**${o.price.toLocaleString('en-US')} บาท**`, inline: true }
@@ -194,10 +222,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
             return interaction.update(buildMessage(order));
         }
 
+        const handler = interaction.user.globalName || interaction.user.username;
+
+        // ออเดอร์เติม Point: "รับเงิน"/"เสร็จสิ้น" = บวก Point เข้าบัญชีลูกค้า (บวกได้ครั้งเดียวต่อออเดอร์)
+        if (order.game === 'points' && action !== 'insufficient') {
+            await interaction.deferUpdate();
+            try {
+                await db.adjustPoints(order.userId, order.price, 'topup', 'order:' + order.id,
+                    `เติม Point ออเดอร์ #${order.id.slice(-6).toUpperCase()}`, handler);
+            } catch (e) {
+                console.error('บวก Point ไม่สำเร็จ:', e.message);
+                return interaction.followUp({ content: 'เพิ่ม Point ไม่สำเร็จ (ยังไม่มีอะไรเปลี่ยน) กรุณากดใหม่อีกครั้ง', flags: MessageFlags.Ephemeral });
+            }
+            order.status = 'done';
+            order.updatedAt = Date.now();
+            order.handledBy = handler;
+            await db.saveOrder(order).catch(e => console.error('บันทึกออเดอร์ไม่สำเร็จ:', e.message));
+            return interaction.editReply(buildMessage(order));
+        }
+
         order.status = action;
         order.updatedAt = Date.now();
-        order.handledBy = interaction.user.globalName || interaction.user.username;
-        saveOrders();
+        order.handledBy = handler;
+        saveOrder(order);
         await interaction.update(buildMessage(order));
     } catch (e) {
         console.error('จัดการปุ่ม Discord ไม่สำเร็จ:', e.message);
@@ -229,12 +276,17 @@ const statusLimiter = rateLimit({
 
 // ลูกค้าส่งออเดอร์ -> สร้างออเดอร์ + ส่งเข้า Discord พร้อมปุ่ม
 app.post('/api/topup', topupLimiter, async (req, res) => {
+    let user = null;
+    try { user = await getSessionUser(req); } catch (e) { console.error('อ่านเซสชันไม่สำเร็จ:', e.message); }
     // ไม่ส่ง game มา = One Punch Man (รองรับหน้าเว็บเวอร์ชันเก่าที่ยังแคชอยู่)
     const gameKey = clean(req.body.game, 20) || 'opm';
     if (!hasOwn(GAMES, gameKey)) {
         return res.status(400).json({ success: false, message: 'เกมไม่ถูกต้อง' });
     }
     const game = GAMES[gameKey];
+    if (game.requireLogin && !user) {
+        return res.status(401).json({ success: false, needLogin: true, message: 'กรุณาเข้าสู่ระบบด้วย Discord ก่อนเติม Point' });
+    }
 
     const data = {};
     for (const f of game.fields) {
@@ -270,18 +322,20 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
 
     const id = crypto.randomBytes(12).toString('hex');
     const now = Date.now();
-    const order = { id, game: gameKey, ...data, facebook, packageName, price, voucherCode, status: 'checking', createdAt: now, updatedAt: now };
+    const order = { id, game: gameKey, ...(user ? { userId: user.id, userName: user.name } : {}), ...data, facebook, packageName, price, voucherCode, status: 'checking', createdAt: now, updatedAt: now };
     if (dupOf) order.dupOf = dupOf.id;
 
     // เก็บก่อนส่ง Discord ถ้าส่งไม่ผ่านค่อยลบทิ้ง
     orders[id] = order;
     try {
+        await db.saveOrder(order);
         const channel = await client.channels.fetch(CHANNEL_ID);
         const msg = await channel.send(buildMessage(order));
         order.messageId = msg.id;
-        saveOrders();
+        saveOrder(order);
     } catch (e) {
         delete orders[id];
+        db.deleteOrder(id).catch(() => {});
         console.error('ส่งออเดอร์เข้า Discord ไม่สำเร็จ:', e.message);
         return res.status(502).json({ success: false, message: 'ระบบแจ้งเตือนแอดมินขัดข้อง กรุณาลองใหม่อีกครั้ง (ซองของคุณยังไม่ถูกใช้)' });
     }
@@ -291,6 +345,122 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
         orderId: id,
         message: 'ส่งออเดอร์แล้ว กำลังตรวจสอบลิงก์ซอง'
     });
+});
+
+// ---------- ล็อกอินด้วย Discord (OAuth2) + เซสชันแบบคุกกี้เซ็นลายเซ็น ----------
+const authLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000, max: 40, standardHeaders: true, legacyHeaders: false,
+    message: { success: false, message: 'พยายามล็อกอินบ่อยเกินไป กรุณารอสักครู่' }
+});
+const SESSION_DAYS = 30;
+
+function signToken(payload) {
+    const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const sig = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
+    return body + '.' + sig;
+}
+function readToken(token) {
+    if (!AUTH_ON || typeof token !== 'string') return null;
+    const [body, sig] = token.split('.');
+    if (!body || !sig) return null;
+    const expect = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('base64url');
+    const a = Buffer.from(sig), b = Buffer.from(expect);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    try {
+        const p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+        return p && p.exp > Date.now() ? p : null;
+    } catch (e) { return null; }
+}
+function parseCookies(req) {
+    const out = {};
+    (req.headers.cookie || '').split(';').forEach(part => {
+        const i = part.indexOf('=');
+        if (i > 0) { try { out[part.slice(0, i).trim()] = decodeURIComponent(part.slice(i + 1).trim()); } catch (e) { /* ข้าม */ } }
+    });
+    return out;
+}
+function setCookie(res, name, value, maxAgeSec) {
+    res.append('Set-Cookie', `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${IS_HTTPS ? '; Secure' : ''}`);
+}
+async function getSessionUser(req) {
+    const s = readToken(parseCookies(req).session);
+    return s ? db.getUser(s.id) : null;
+}
+const isAdminId = (id) => ADMIN_IDS.includes(id);
+const avatarUrl = (u) => (u.avatar && /^[a-z0-9_]+$/i.test(u.avatar))
+    ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png?size=64` : null;
+
+app.get('/auth/discord', authLimiter, (req, res) => {
+    if (!AUTH_ON) return res.status(503).send('ระบบล็อกอินยังไม่เปิดใช้งาน');
+    const state = crypto.randomBytes(16).toString('hex');
+    setCookie(res, 'oauth_state', state, 600);
+    const q = new URLSearchParams({ client_id: DISCORD_CLIENT_ID, redirect_uri: REDIRECT_URI, response_type: 'code', scope: 'identify', state, prompt: 'none' });
+    res.redirect('https://discord.com/oauth2/authorize?' + q);
+});
+
+app.get('/auth/discord/callback', authLimiter, async (req, res) => {
+    if (!AUTH_ON) return res.status(503).send('ระบบล็อกอินยังไม่เปิดใช้งาน');
+    const { code, state } = req.query;
+    const saved = parseCookies(req).oauth_state;
+    setCookie(res, 'oauth_state', '', 0);
+    if (typeof code !== 'string' || typeof state !== 'string' || !saved || state !== saved) return res.redirect('/?login=failed');
+    try {
+        const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({ client_id: DISCORD_CLIENT_ID, client_secret: DISCORD_CLIENT_SECRET, grant_type: 'authorization_code', code, redirect_uri: REDIRECT_URI })
+        });
+        if (!tokenRes.ok) throw new Error('แลก token ไม่สำเร็จ: HTTP ' + tokenRes.status);
+        const tok = await tokenRes.json();
+        const meRes = await fetch('https://discord.com/api/users/@me', { headers: { Authorization: 'Bearer ' + tok.access_token } });
+        if (!meRes.ok) throw new Error('ดึงโปรไฟล์ไม่สำเร็จ: HTTP ' + meRes.status);
+        const du = await meRes.json();
+        if (!/^\d{5,25}$/.test(String(du.id))) throw new Error('Discord ID ไม่ถูกต้อง');
+        const user = await db.upsertUser({ id: String(du.id), name: clean(du.global_name || du.username, 60) || 'ผู้ใช้', avatar: du.avatar });
+        setCookie(res, 'session', signToken({ id: user.id, exp: Date.now() + SESSION_DAYS * 86400000 }), SESSION_DAYS * 86400);
+        res.redirect('/');
+    } catch (e) {
+        console.error('ล็อกอิน Discord ไม่สำเร็จ:', e.message);
+        res.redirect('/?login=failed');
+    }
+});
+
+app.post('/auth/logout', (req, res) => {
+    setCookie(res, 'session', '', 0);
+    res.json({ success: true });
+});
+
+app.get('/api/me', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const u = await getSessionUser(req);
+        if (!u) return res.json({ success: true, authEnabled: AUTH_ON, user: null });
+        return res.json({ success: true, authEnabled: AUTH_ON, user: { id: u.id, name: u.name, avatarUrl: avatarUrl(u), points: u.points, isAdmin: isAdminId(u.id) } });
+    } catch (e) {
+        console.error('/api/me ผิดพลาด:', e.message);
+        return res.json({ success: true, authEnabled: AUTH_ON, user: null });
+    }
+});
+
+// ประวัติของผู้ใช้ที่ล็อกอินอยู่: เติมเกม / เติมเงิน (ออเดอร์ Point) / ความเคลื่อนไหว Point
+app.get('/api/me/history', statusLimiter, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const u = await getSessionUser(req);
+        if (!u) return res.status(401).json({ success: false, message: 'กรุณาเข้าสู่ระบบ' });
+        const mine = Object.values(orders).filter(o => o.userId === u.id).sort((a, b) => b.createdAt - a.createdAt);
+        const view = (o) => ({ id: o.id, game: o.game || 'opm', packageName: o.packageName, price: o.price, status: o.status, createdAt: o.createdAt });
+        return res.json({
+            success: true,
+            points: u.points,
+            gameOrders: mine.filter(o => o.game !== 'points').slice(0, 50).map(view),
+            topupOrders: mine.filter(o => o.game === 'points').slice(0, 50).map(view),
+            ledger: await db.getLedger(u.id, 50)
+        });
+    } catch (e) {
+        console.error('/api/me/history ผิดพลาด:', e.message);
+        return res.status(500).json({ success: false, message: 'โหลดประวัติไม่สำเร็จ' });
+    }
 });
 
 // หน้าเว็บเช็กสถานะออเดอร์ (ส่งกลับเฉพาะข้อมูลที่ลูกค้าควรเห็น ไม่ส่งลิงก์ซอง)
@@ -308,11 +478,22 @@ app.get('/api/order/:id', statusLimiter, (req, res) => {
     });
 });
 
-client.login(BOT_TOKEN)
-    .then(() => {
-        app.listen(PORT, () => console.log(`Server is running at http://localhost:${PORT}`));
-    })
-    .catch((e) => {
-        console.error('เข้าสู่ระบบ Discord bot ไม่สำเร็จ (ตรวจ DISCORD_BOT_TOKEN):', e.message);
+(async () => {
+    try {
+        await db.initDb();
+        orders = await db.loadOrders();
+        await importLegacyOrders();
+        console.log(`โหลดออเดอร์จากฐานข้อมูล ${Object.keys(orders).length} รายการ | ล็อกอิน Discord: ${AUTH_ON ? 'เปิด' : 'ปิด (ยังไม่ตั้งค่า)'}`);
+    } catch (e) {
+        console.error('เชื่อมต่อฐานข้อมูลไม่สำเร็จ (ตรวจ TURSO_DATABASE_URL / TURSO_AUTH_TOKEN):', e.message);
         process.exit(1);
-    });
+    }
+    client.login(BOT_TOKEN)
+        .then(() => {
+            app.listen(PORT, () => console.log(`Server is running at http://localhost:${PORT}`));
+        })
+        .catch((e) => {
+            console.error('เข้าสู่ระบบ Discord bot ไม่สำเร็จ (ตรวจ DISCORD_BOT_TOKEN):', e.message);
+            process.exit(1);
+        });
+})();
