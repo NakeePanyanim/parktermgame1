@@ -1,10 +1,10 @@
 {
   "name": "park-termgame-truemoney",
   "version": "1.0.0",
-  "main": "topup.js",
-  "scripts": {
-    "start": "node topup.js"
-  },
+  "main": "api/topup.js",
+"scripts": {
+  "start": "node api/topup.js"
+},
   "dependencies": {
     "@libsql/client": "^0.18.0",
     "axios": "^1.21.1",
