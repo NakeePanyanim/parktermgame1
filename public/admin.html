@@ -51,15 +51,31 @@ tailwind.config = {
   </header>
 
   <nav class="flex gap-2 mb-5 text-sm overflow-x-auto" id="tabs">
-    <button class="tab btn on" data-tab="users">ผู้ใช้ & เงิน</button>
+    <button class="tab btn on" data-tab="stats">สถิติยอด</button>
+    <button class="tab btn" data-tab="users">ผู้ใช้ & เงิน</button>
     <button class="tab btn" data-tab="packages">แพ็กเกจ & ราคา</button>
     <button class="tab btn" data-tab="codes">โค้ดส่วนลด</button>
     <button class="tab btn" data-tab="orders">ออเดอร์</button>
     <button class="tab btn" data-tab="log">บันทึกแอดมิน</button>
   </nav>
 
+  <!-- สถิติ -->
+  <section id="tab-stats">
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <p id="statsPending" class="text-xs text-slate-400">กำลังโหลด...</p>
+      <button id="statsReload" class="btn shrink-0">รีเฟรช</button>
+    </div>
+    <div id="statsBody" class="space-y-5"></div>
+    <ul class="text-[11px] text-slate-500 mt-5 space-y-0.5 list-disc pl-4">
+      <li>ตัดรอบตามเวลาไทย: วันนี้ = ตั้งแต่ 00:00 น. สัปดาห์นี้ = เริ่มวันจันทร์ เดือนนี้และปีนี้ = ตั้งแต่วันที่ 1</li>
+      <li>ยอดขาย = ออเดอร์แพ็กเกจเกมที่กด "รับเงิน" หรือ "เสร็จสิ้น" แล้ว | ยอดเติมเงิน = ออเดอร์เติม Point ที่กดรับเงินแล้ว</li>
+      <li>นับตามเวลาที่กดปุ่มล่าสุดของออเดอร์ ไม่นับออเดอร์ที่ยกเลิก (ยอดไม่ครบ/เงินไม่พอ) และที่ยังรอตรวจ</li>
+      <li>ออเดอร์เกมที่จ่ายด้วยเงินในบัญชี เป็นเงินที่นับไปตอนเติม Point แล้ว จึงไม่รวมใน "เงินเข้าจริง" เพื่อไม่ให้นับซ้ำ</li>
+    </ul>
+  </section>
+
   <!-- ผู้ใช้ -->
-  <section id="tab-users">
+  <section id="tab-users" class="hidden">
     <div class="flex gap-2 mb-3">
       <input id="userQ" class="field" placeholder="ค้นหาชื่อ หรือ Discord ID" autocomplete="off">
       <button id="userSearch" class="btn shrink-0">ค้นหา</button>
@@ -165,6 +181,7 @@ async function boot() {
     const me = await api('/me');
     $('meName').textContent = me.name; discountPct = me.discountPct; $('discPct').textContent = me.discountPct;
     $('gate').classList.add('hidden'); $('app').classList.remove('hidden');
+    loadStats();
     searchUsers(); 
   } catch (e) {
     $('gateMsg').textContent = e.status === 401 ? 'กรุณาเข้าสู่ระบบด้วย Discord ก่อน' : e.status === 403 ? 'บัญชีนี้ไม่มีสิทธิ์แอดมิน' : e.message;
@@ -176,8 +193,9 @@ async function boot() {
 const loaded = {};
 document.querySelectorAll('#tabs .tab').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('#tabs .tab').forEach(x => x.classList.toggle('on', x === b));
-  ['users', 'packages', 'codes', 'orders', 'log'].forEach(k => $('tab-' + k).classList.toggle('hidden', k !== b.dataset.tab));
+  ['stats', 'users', 'packages', 'codes', 'orders', 'log'].forEach(k => $('tab-' + k).classList.toggle('hidden', k !== b.dataset.tab));
   const k = b.dataset.tab;
+  if (k === 'stats') loadStats();
   if (k === 'packages') loadPackages();
   if (k === 'codes') loadCodes();
   if (k === 'orders') loadOrders();
@@ -269,6 +287,42 @@ async function openUser(id) {
     searchUsers();
   });
 }
+
+/* ---------- สถิติยอด ---------- */
+const PERIODS = [['day', 'วันนี้'], ['week', 'สัปดาห์นี้'], ['month', 'เดือนนี้'], ['year', 'ปีนี้'], ['all', 'ทั้งหมด']];
+const statCard = (label, big, sub, tone) => `<div class="rounded-xl border border-line bg-panel p-3"><p class="text-[11px] text-slate-500">${esc(label)}</p><p class="text-xl font-extrabold mt-0.5 ${tone}">${big}</p><p class="text-[11px] text-slate-500 mt-0.5">${sub}</p></div>`;
+const statBlock = (title, hint, cards) => `<div><p class="text-sm font-semibold">${esc(title)} <span class="text-[11px] font-normal text-slate-500">${esc(hint)}</span></p><div class="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2">${cards}</div></div>`;
+async function loadStats() {
+  await run(async () => {
+    const d = await api('/stats'), P = d.periods;
+    $('statsPending').textContent = `รอตรวจสอบตอนนี้: ออเดอร์เกม ${fmt(d.pending.sales)} รายการ · เติม Point ${fmt(d.pending.topup)} รายการ`;
+    const cards = (fn) => PERIODS.map(([k, l]) => fn(P[k], l)).join('');
+    const sales = cards((p, l) => statCard(l, fmt(p.sales) + ' ฿', `${fmt(p.salesCount)} ออเดอร์`, 'text-amber-300'));
+    const topup = cards((p, l) => statCard(l, fmt(p.topup) + ' ฿', `${fmt(p.topupCount)} รายการ · ซอง ${fmt(p.topupVoucher)} · โอน ${fmt(p.topupBank)}`, 'text-emerald-400'));
+    const cash = cards((p, l) => statCard(l, fmt(p.salesVoucher + p.topup) + ' ฿', `ซื้อเกมด้วยซอง ${fmt(p.salesVoucher)} + เติม Point ${fmt(p.topup)}`, 'text-sky-300'));
+
+    const games = [...new Set(PERIODS.flatMap(([k]) => Object.keys(P[k].byGame)))];
+    const gameTable = games.length
+      ? `<div class="rounded-xl border border-line bg-panel overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-[11px] text-slate-500 text-left"><th class="p-2.5 font-medium">เกม</th>${PERIODS.map(([, l]) => `<th class="p-2.5 font-medium text-right">${esc(l)}</th>`).join('')}</tr></thead><tbody>${games.map(g => `<tr class="border-t border-line"><td class="p-2.5">${esc(GAME_TH[g] || g)}</td>${PERIODS.map(([k]) => { const x = P[k].byGame[g]; return `<td class="p-2.5 text-right whitespace-nowrap">${x ? fmt(x.sales) + ' ฿ <span class="text-[11px] text-slate-500">(' + fmt(x.count) + ')</span>' : '-'}</td>`; }).join('')}</tr>`).join('')}</tbody></table></div>`
+      : '<p class="text-xs text-slate-500 mt-2">ยังไม่มียอดขาย</p>';
+
+    const max = Math.max(1, ...d.daily.map(x => Math.max(x.sales, x.topup)));
+    const bar = (v, clr) => `<div class="w-1/2 max-w-[14px] rounded-t ${clr}" style="height:${v > 0 ? Math.max(2, Math.round(v / max * 100)) : 0}%"></div>`;
+    const chart = `<div class="rounded-xl border border-line bg-panel p-3">
+      <div class="flex gap-2 h-36 items-end">${d.daily.map(x => `<div class="flex-1 min-w-0 h-full flex flex-col justify-end items-center gap-1" title="${esc(x.date)} · ยอดขาย ${fmt(x.sales)} ฿ · เติมเงิน ${fmt(x.topup)} ฿">
+        <div class="w-full flex-1 flex items-end justify-center gap-0.5">${bar(x.sales, 'bg-amber-400')}${bar(x.topup, 'bg-emerald-400')}</div>
+        <span class="text-[10px] text-slate-500">${esc(x.date.slice(8, 10) + '/' + x.date.slice(5, 7))}</span></div>`).join('')}</div>
+      <p class="text-[11px] text-slate-500 mt-2"><span class="inline-block w-2 h-2 rounded-sm bg-amber-400 align-middle"></span> ยอดขาย &nbsp; <span class="inline-block w-2 h-2 rounded-sm bg-emerald-400 align-middle"></span> ยอดเติมเงิน &nbsp; (แตะ/เมาส์ชี้ที่แท่งเพื่อดูตัวเลข)</p></div>`;
+
+    $('statsBody').innerHTML =
+      statBlock('ยอดขายแพ็กเกจเกม', 'One Punch Man + Roblox', sales) +
+      statBlock('ยอดเติมเงิน (เติม Point)', 'ซองอั่งเปา + โอนธนาคาร', topup) +
+      statBlock('เงินเข้าจริง', 'ซื้อเกมด้วยซองโดยตรง + เติม Point', cash) +
+      `<div><p class="text-sm font-semibold">ยอดขายแยกตามเกม <span class="text-[11px] font-normal text-slate-500">(ตัวเลขในวงเล็บ = จำนวนออเดอร์)</span></p><div class="mt-2">${gameTable}</div></div>` +
+      `<div><p class="text-sm font-semibold">14 วันล่าสุด</p><div class="mt-2">${chart}</div></div>`;
+  });
+}
+$('statsReload').addEventListener('click', loadStats);
 
 /* ---------- แพ็กเกจ ---------- */
 let pkgGame = 'opm', allPkgs = [];
