@@ -214,7 +214,7 @@ tailwind.config = {
         <!-- เติม Point: ไม่มีช่องบัญชีเกม -->
         <div id="fields-points" class="hidden">
           <div class="rounded-xl border border-amber-400/20 bg-amber-400/5 p-3 text-sm text-slate-300">
-            เติม Point เข้าบัญชี <b id="pointsWho" class="text-white"></b> เมื่อแอดมินตรวจซองแล้ว Point จะเข้าอัตโนมัติ
+            เติม Point เข้าบัญชี <b id="pointsWho" class="text-white"></b> เมื่อแอดมินตรวจสอบการชำระเงินแล้ว Point จะเข้าอัตโนมัติ
           </div>
         </div>
 
@@ -277,11 +277,18 @@ tailwind.config = {
               <p class="text-xs text-slate-500 mt-0.5">สร้างซองแล้วส่งลิงก์</p>
             </div>
           </label>
-          <label class="pay-opt block cursor-pointer">
+          <label id="payOptBalance" class="pay-opt block cursor-pointer">
             <input type="radio" name="pay" value="balance" class="sr-only">
             <div class="pay-card">
               <p class="font-semibold text-sm">👛 เงินในบัญชี</p>
               <p id="payBalSub" class="text-xs text-slate-500 mt-0.5">คงเหลือ 0 บาท</p>
+            </div>
+          </label>
+          <label id="payOptBank" class="pay-opt block cursor-pointer" style="display:none">
+            <input type="radio" name="pay" value="bank" class="sr-only">
+            <div class="pay-card">
+              <p class="font-semibold text-sm">🏦 โอนผ่านธนาคาร</p>
+              <p class="text-xs text-slate-500 mt-0.5">โอนเข้าบัญชีร้าน แล้วกรอกบัญชีของคุณ</p>
             </div>
           </label>
         </div>
@@ -312,6 +319,38 @@ tailwind.config = {
             <p id="balWarn" class="hidden text-xs font-medium text-rose-400"></p>
           </div>
           <p class="err text-xs text-red-400 mt-1 hidden" data-for="pay">ยอดเงินในบัญชีไม่พอ กรุณาเติมเงินก่อนหรือเลือกจ่ายด้วยซองอั่งเปา</p>
+        </div>
+
+        <div id="bankBox" class="hidden">
+          <div class="rounded-2xl border border-amber-400/20 bg-amber-400/5 p-4 mb-4">
+            <p class="text-xs text-slate-400 mb-3">โอนเงินเข้าบัญชีของร้าน</p>
+            <dl class="space-y-3 text-sm">
+              <div class="flex justify-between gap-3"><dt class="text-slate-500">ธนาคาร</dt><dd id="bkName" class="font-semibold text-right"></dd></div>
+              <div class="flex justify-between items-center gap-3"><dt class="text-slate-500">เลขบัญชี</dt>
+                <dd class="flex items-center gap-2"><span id="bkNo" class="font-bold text-lg tracking-wider text-white"></span>
+                  <button type="button" id="bkCopy" class="shrink-0 px-2.5 py-1 rounded-lg border border-line text-xs text-slate-300 hover:border-amber-400/50 hover:text-amber-300 transition">คัดลอก</button></dd></div>
+              <div class="flex justify-between gap-3"><dt class="text-slate-500">ชื่อบัญชี</dt><dd id="bkHolder" class="font-semibold text-right"></dd></div>
+              <div class="flex justify-between gap-3 pt-3 border-t border-dashed border-line"><dt class="text-slate-500">ยอดที่ต้องโอน</dt><dd class="font-extrabold text-amber-300"><span id="bkAmount">0</span> บาท</dd></div>
+            </dl>
+          </div>
+          <ol class="space-y-1.5 text-sm text-slate-300 mb-4">
+            <li>1. โอนเงินตามยอดด้านบนเข้าบัญชีของร้าน</li>
+            <li>2. กรอกธนาคารและเลขบัญชีที่คุณใช้โอนด้านล่าง แล้วกดยืนยัน</li>
+            <li>3. แอดมินตรวจสอบยอดโอน แล้วเติม Point เข้าบัญชีให้</li>
+          </ol>
+          <div class="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label for="bankFrom" class="block text-xs font-medium text-slate-300 mb-1.5">ธนาคารของคุณ <span class="text-red-400">*</span></label>
+              <select id="bankFrom" class="field"><option value="">-- เลือกธนาคารของคุณ --</option></select>
+              <p class="err text-xs text-red-400 mt-1 hidden" data-for="bankFrom">กรุณาเลือกธนาคารของคุณ</p>
+            </div>
+            <div>
+              <label for="bankAcc" class="block text-xs font-medium text-slate-300 mb-1.5">เลขบัญชีของคุณ <span class="text-red-400">*</span></label>
+              <input type="text" id="bankAcc" inputmode="numeric" autocomplete="off" maxlength="20" placeholder="เช่น 1234567890" class="field">
+              <p class="err text-xs text-red-400 mt-1 hidden" data-for="bankAcc">เลขบัญชีไม่ถูกต้อง (ตัวเลข 10-15 หลัก)</p>
+            </div>
+          </div>
+          <p class="text-xs text-slate-500 mt-3">โอนก่อนแล้วค่อยกดยืนยัน และเก็บสลิปไว้เผื่อแอดมินสอบถาม ถ้าแอดมินไม่พบยอดโอนหรือยอดไม่ครบ สถานะออเดอร์จะแสดงว่ายอดเงินไม่เพียงพอ</p>
         </div>
       </section>
     </div>
@@ -535,7 +574,15 @@ let codeInfo = null; // โค้ดที่ตรวจผ่านแล้�
 const curPrice = () => !selected ? 0 : (codeInfo && !selected.custom && codeInfo.name === selected.name && codeInfo.before === selected.price) ? codeInfo.after : selected.price;
 let pkgLoaded = false, lastRoleKey = null;
 const ROLE_TH = { member: 'Member', reseller: 'Reseller', admin: 'Admin' };
-function currentPay() { return (me && game !== 'points' && payMethod === 'balance') ? 'balance' : 'voucher'; }
+let bankInfo = null; // ข้อมูลบัญชีร้าน (โหลดหลังล็อกอิน) ถ้า null = ไม่มีตัวเลือกโอนธนาคาร
+let lastBankKey = null;
+function currentPay() {
+  if (me && game !== 'points' && payMethod === 'balance') return 'balance';
+  if (me && game === 'points' && bankInfo && payMethod === 'bank') return 'bank';
+  return 'voucher';
+}
+const PAY_LABEL = { voucher: 'ซองอั่งเปา', balance: 'เงินในบัญชี', bank: 'โอนธนาคาร' };
+const payLabel = m => PAY_LABEL[m] || PAY_LABEL.voucher;
 
 const grid = $('packageGrid');
 function renderPackages() {
@@ -586,7 +633,7 @@ function updateSummary() {
     ['เกม', g.name],
     ...g.fields.map(f => [f.label, getVal(f.key) || '-']),
     ['แพ็กเกจ', selected ? selected.name : 'ยังไม่ได้เลือก'],
-    ...(game !== 'points' ? [['ชำระด้วย', currentPay() === 'balance' ? 'เงินในบัญชี' : 'ซองอั่งเปา']] : []),
+    ['ชำระด้วย', payLabel(currentPay())],
     ...(codeInfo && curPrice() === codeInfo.after ? [['โค้ดส่วนลด', `${codeInfo.code} (−${fmt(codeInfo.discount)} บาท)`]] : []),
     [g.perLabel, selected ? (unit(selected) * g.perMult).toFixed(2) + ' ฿' : '-']
   ];
@@ -594,8 +641,8 @@ function updateSummary() {
     `<div class="flex justify-between gap-3"><dt class="text-slate-500">${esc(k)}</dt><dd class="font-medium text-right break-all">${esc(v)}</dd></div>`).join('');
   if (g.custom) {
     $('customHint').textContent = selected
-      ? `ต้องสร้างซองมูลค่า ${fmt(selected.price)} บาท พอดี (1 Point = 1 บาท)`
-      : 'พิมพ์จำนวนเงิน ระบบจะบอกมูลค่าซองที่ต้องสร้าง';
+      ? (currentPay() === 'bank' ? `ต้องโอนเงิน ${fmt(selected.price)} บาท (1 Point = 1 บาท)` : `ต้องสร้างซองมูลค่า ${fmt(selected.price)} บาท พอดี (1 Point = 1 บาท)`)
+      : (currentPay() === 'bank' ? 'พิมพ์จำนวนเงินที่ต้องการเติม' : 'พิมพ์จำนวนเงิน ระบบจะบอกมูลค่าซองที่ต้องสร้าง');
   }
   renderPay();
 }
@@ -638,18 +685,28 @@ $('codeInput').addEventListener('input', () => {
 
 function renderPay() {
   $('codeBox').classList.toggle('hidden', !!GAMES[game].custom); // โค้ดใช้กับแพ็กเกจเกมเท่านั้น
-  const show = !!me && game !== 'points';
-  if (!show) payMethod = 'voucher';
+  const isPts = game === 'points';
+  const canBank = !!bankInfo && isPts;
+  const show = !!me && (!isPts || canBank);
+  if (!show || (payMethod === 'balance' && isPts) || (payMethod === 'bank' && !canBank)) payMethod = 'voucher';
   $('payBox').classList.toggle('hidden', !show);
+  $('payOptBalance').style.display = isPts ? 'none' : '';
+  $('payOptBank').style.display = canBank ? '' : 'none';
   const radio = document.querySelector(`input[name="pay"][value="${payMethod}"]`);
   if (radio) radio.checked = true;
   const bal = me ? me.points : 0, price = curPrice();
   $('payBalSub').textContent = `คงเหลือ ${fmt(bal)} บาท`;
   const isBal = currentPay() === 'balance';
-  $('voucherBox').classList.toggle('hidden', isBal);
+  const isBank = currentPay() === 'bank';
+  $('voucherBox').classList.toggle('hidden', isBal || isBank);
   $('balanceBox').classList.toggle('hidden', !isBal);
-  $('step3Title').textContent = isBal ? 'ชำระด้วยเงินในบัญชี' : 'ชำระเงินด้วยซองของขวัญ TrueMoney';
-  $('step3Hint').textContent = isBal ? 'ไม่หักเงินทันที จะหักเมื่อแอดมินกดรับออเดอร์' : 'สร้างซองในแอป แล้วนำลิงก์มาวางด้านล่าง';
+  $('bankBox').classList.toggle('hidden', !isBank);
+  $('step3Title').textContent = isBank ? 'โอนเงินผ่านธนาคาร' : isBal ? 'ชำระด้วยเงินในบัญชี' : 'ชำระเงินด้วยซองของขวัญ TrueMoney';
+  $('step3Hint').textContent = isBank ? 'โอนเข้าบัญชีของร้าน แล้วกรอกข้อมูลบัญชีของคุณ' : isBal ? 'ไม่หักเงินทันที จะหักเมื่อแอดมินกดรับออเดอร์' : 'สร้างซองในแอป แล้วนำลิงก์มาวางด้านล่าง';
+  if (isBank) {
+    $('bkName').textContent = bankInfo.bankName; $('bkNo').textContent = bankInfo.accountNo;
+    $('bkHolder').textContent = bankInfo.accountName; $('bkAmount').textContent = fmt(price);
+  }
   $('balPrice').textContent = fmt(price);
   $('balHave').textContent = fmt(bal);
   const warn = $('balWarn');
@@ -657,6 +714,12 @@ function renderPay() {
   if (isBal && price > bal) warn.textContent = `ยอดเงินไม่พอ ขาดอีก ${fmt(price - bal)} บาท`;
 }
 document.querySelectorAll('input[name="pay"]').forEach(r => r.addEventListener('change', () => { payMethod = r.value; clearErr('pay'); updateSummary(); }));
+$('bkCopy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(String(bankInfo.accountNo).replace(/\D/g, ''));
+    $('bkCopy').textContent = 'คัดลอกแล้ว ✓'; setTimeout(() => { $('bkCopy').textContent = 'คัดลอก'; }, 1500);
+  } catch (e) { /* เบราว์เซอร์ไม่อนุญาตให้คัดลอก */ }
+});
 
 $('customAmount').addEventListener('input', () => {
   const g = GAMES[game];
@@ -697,6 +760,8 @@ document.querySelectorAll('.game-tab').forEach(b => b.addEventListener('click', 
 
 /* ===== Validation ===== */
 const VOUCHER_RE = /^https?:\/\/gift\.truemoney\.com\/campaign\/?\?v=[A-Za-z0-9]+/i;
+const BANK_ACC_RE = /^\d{10,15}$/;
+const bankAccDigits = () => $('bankAcc').value.replace(/[\s-]/g, '');
 function showErr(key) {
   const el = document.querySelector(`.err[data-for="${key}"]`); if (el) el.classList.remove('hidden');
   const input = $(key); if (input) input.classList.add('invalid');
@@ -705,7 +770,7 @@ function clearErr(key) {
   const el = document.querySelector(`.err[data-for="${key}"]`); if (el) el.classList.add('hidden');
   const input = $(key); if (input) input.classList.remove('invalid');
 }
-[...FIELD_KEYS, 'facebook', 'voucherLink'].forEach(id => $(id).addEventListener('input', () => clearErr(id)));
+[...FIELD_KEYS, 'facebook', 'voucherLink', 'bankFrom', 'bankAcc'].forEach(id => $(id).addEventListener('input', () => clearErr(id)));
 
 function validate() {
   const g = GAMES[game];
@@ -715,8 +780,12 @@ function validate() {
   mark('facebook', $('facebook').value.trim().length > 0);
   if (g.custom) mark('customAmount', !!selected); else mark('package', !!selected);
   if (!g.custom && $('codeInput').value.trim() && !codeInfo) mark('codeInput', false);
-  if (currentPay() === 'balance') mark('pay', !!selected && me.points >= curPrice());
-  else mark('voucherLink', VOUCHER_RE.test($('voucherLink').value.trim()));
+  const pay = currentPay();
+  if (pay === 'balance') mark('pay', !!selected && me.points >= curPrice());
+  else if (pay === 'bank') {
+    mark('bankFrom', !!$('bankFrom').value);
+    mark('bankAcc', BANK_ACC_RE.test(bankAccDigits()));
+  } else mark('voucherLink', VOUCHER_RE.test($('voucherLink').value.trim()));
   if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
   return ok;
 }
@@ -764,6 +833,7 @@ async function submitOrder(e) {
     payMethod: currentPay()
   };
   if (payload.payMethod === 'voucher') payload.voucherLink = $('voucherLink').value.trim();
+  if (payload.payMethod === 'bank') { payload.bankName = $('bankFrom').value; payload.bankAccount = bankAccDigits(); }
   if (g.custom) payload.amount = selected.price;
   if (!g.custom && codeInfo) payload.code = codeInfo.code;
   g.fields.forEach(f => { payload[f.key] = getVal(f.key); });
@@ -831,6 +901,7 @@ function stepHTML(state, text) {
 }
 
 function stepsFor(c) {
+  if (c.payMethod === 'bank') return ['ส่งรายการแล้ว', 'รอแอดมินตรวจสอบยอดโอน', 'ตรวจสอบยอดโอนแล้ว', 'เติม Point เข้าบัญชีแล้ว'];
   return c.payMethod === 'balance'
     ? ['ส่งออเดอร์แล้ว', 'รอแอดมินตรวจสอบ', 'รับออเดอร์ หักเงินแล้ว รอเติมตามคิว', 'เติมเสร็จสิ้น']
     : STEPS;
@@ -841,6 +912,10 @@ function viewFor(c) {
     if (c.status === 'checking') { v.title = 'รอแอดมินตรวจสอบ'; v.desc = 'ส่งออเดอร์แล้ว ยังไม่มีการหักเงิน จะหักเมื่อแอดมินรับออเดอร์ กรุณารอ5นาทีถึง1ชั่วโมง หน้านี้จะอัปเดตสถานะให้อัตโนมัติ'; }
     if (c.status === 'received') { v.title = 'รับออเดอร์แล้ว หักเงินแล้ว'; v.desc = 'แอดมินรับออเดอร์และหักเงินในบัญชีเรียบร้อยแล้ว กำลังเติมให้ตามคิวใช้เวลา5นาทีถึง1ชั่วโมง'; }
     if (c.status === 'insufficient') { v.title = 'ออเดอร์ไม่ถูกดำเนินการ'; v.desc = 'แอดมินไม่รับออเดอร์นี้ เงินในบัญชีไม่ถูกหัก (หรือถูกคืนให้แล้ว) หากสงสัยติดต่อแอดมินทาง Facebook พร้อมแจ้งเลขออเดอร์'; }
+  }
+  if (c.payMethod === 'bank') {
+    if (c.status === 'checking') { v.title = 'รอแอดมินตรวจสอบยอดโอน'; v.desc = 'ส่งรายการให้แอดมินแล้ว แอดมินจะตรวจสอบยอดโอนและเติม Point เข้าบัญชีให้ หน้านี้จะอัปเดตสถานะให้อัตโนมัติ'; }
+    if (c.status === 'insufficient') { v.title = 'ยอดเงินไม่เพียงพอ'; v.desc = 'แอดมินตรวจสอบแล้วไม่พบยอดโอน หรือยอดไม่ครบ กรุณาติดต่อแอดมินทาง Facebook พร้อมแจ้งเลขออเดอร์และสลิปการโอน'; }
   }
   if (c.game === 'points' && c.status === 'done') v.desc = 'เติมเงินเข้าบัญชีเรียบร้อยแล้ว ตรวจสอบยอดได้ที่ปุ่มบัญชีมุมขวาบน';
   return v;
@@ -869,7 +944,7 @@ function renderTracker() {
   $('modalSummary').innerHTML =
     row('หมายเลขออเดอร์', '#' + esc(shortId(current.id))) + row('เกม', esc(cg.name)) +
     cg.fields.map(f => current[f.key] ? row(f.label, esc(current[f.key])) : '').join('') +
-    row('แพ็กเกจ', esc(current.packageName)) + row('ชำระด้วย', current.payMethod === 'balance' ? 'เงินในบัญชี' : 'ซองอั่งเปา') + row('ยอดชำระ', fmt(current.price) + ' ฿');
+    row('แพ็กเกจ', esc(current.packageName)) + row('ชำระด้วย', payLabel(current.payMethod)) + row('ยอดชำระ', fmt(current.price) + ' ฿');
   $('trkNote').textContent = FINAL.includes(current.status)
     ? 'เก็บหมายเลขออเดอร์ไว้อ้างอิงกับแอดมินได้'
     : 'หน้านี้อัปเดตสถานะอัตโนมัติ ปิดหน้าต่างได้ แล้วกลับมาดูใหม่ที่แถบ "ออเดอร์ล่าสุด"';
@@ -881,7 +956,7 @@ function renderBar() {
   bar.classList.remove('hidden');
   $('lastOrderNo').textContent = shortId(current.id);
   $('lastOrderIcon').textContent = (VIEW[current.status] || VIEW.checking).icon;
-  $('lastOrderText').textContent = (current.payMethod === 'balance' && current.status === 'checking') ? 'รอแอดมินตรวจสอบ' : (BAR_TEXT[current.status] || BAR_TEXT.checking);
+  $('lastOrderText').textContent = (current.payMethod === 'bank' && current.status === 'checking') ? 'รอตรวจสอบยอดโอน' : (current.payMethod === 'balance' && current.status === 'checking') ? 'รอแอดมินตรวจสอบ' : (BAR_TEXT[current.status] || BAR_TEXT.checking);
 }
 
 function openModal() { renderTracker(); $('modal').classList.remove('hidden'); }
@@ -949,12 +1024,25 @@ async function loadPackages() {
   renderPackages(); updateSummary();
 }
 
+async function loadBank() {
+  bankInfo = null;
+  if (me) {
+    try { const d = await (await fetch('/api/bank', { cache: 'no-store' })).json(); if (d.success && d.enabled) bankInfo = d; } catch (e) { /* ไม่มีตัวเลือกโอน */ }
+  }
+  const sel = $('bankFrom'), keep = sel.value;
+  sel.innerHTML = '<option value="">-- เลือกธนาคารของคุณ --</option>' + (bankInfo ? bankInfo.banks.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join('') : '');
+  if (keep) sel.value = keep;
+  updateSummary();
+}
+
 async function loadMe() {
   try {
     const d = await (await fetch('/api/me', { cache: 'no-store' })).json();
     me = d.user || null; authEnabled = !!d.authEnabled;
   } catch (e) { /* ใช้ค่าเดิม */ }
   renderAuth();
+  const bankKey = me ? me.id : '';
+  if (bankKey !== lastBankKey) { lastBankKey = bankKey; await loadBank(); }
   const key = me ? me.role : 'guest'; // ยศเปลี่ยน = ราคาเปลี่ยน (Reseller ลดราคา) ต้องโหลดแพ็กเกจใหม่
   if (key !== lastRoleKey) { lastRoleKey = key; await loadPackages(); }
 }
@@ -995,7 +1083,7 @@ function fillAcc() {
          <div class="text-right shrink-0"><p class="font-bold ${r.delta > 0 ? 'text-emerald-400' : 'text-rose-400'}">${r.delta > 0 ? '+' : ''}${fmt(r.delta)} บาท</p><p class="text-[11px] text-slate-500">คงเหลือ ${fmt(r.balanceAfter)} บาท</p></div></li>`
     : `<li class="rounded-xl bg-ink border border-line p-3 flex items-center justify-between gap-3">
          <div class="min-w-0"><p class="font-medium truncate">${esc((GAMES[r.game] || GAMES.opm).name)} · ${esc(r.packageName)}</p><p class="text-[11px] text-slate-500">#${esc(shortId(r.id))} · ${esc(when(r.createdAt))}</p></div>
-         <div class="text-right shrink-0"><p class="font-bold">${fmt(r.price)} ฿</p><p class="text-[11px] ${STATUS_CLR[r.status] || ''}">${esc(STATUS_TH[r.status] || r.status)}</p></div></li>`).join('');
+         <div class="text-right shrink-0"><p class="font-bold">${fmt(r.price)} ฿</p><p class="text-[11px] ${STATUS_CLR[r.status] || ''}">${esc(r.payMethod === 'bank' && r.status === 'checking' ? 'รอตรวจสอบยอดโอน' : (STATUS_TH[r.status] || r.status))}</p></div></li>`).join('');
 }
 async function openAcc() {
   if (!me) return;
@@ -1014,7 +1102,7 @@ $('accModal').addEventListener('click', e => { if (e.target === $('accModal')) c
 $('accTopup').addEventListener('click', () => { closeAcc(); setGame('points'); $('topup').scrollIntoView({ behavior: 'smooth' }); });
 $('accLogout').addEventListener('click', async () => {
   try { await fetch('/auth/logout', { method: 'POST' }); } catch (e) { /* ไม่เป็นไร */ }
-  me = null; closeAcc(); renderAuth();
+  me = null; bankInfo = null; lastBankKey = null; closeAcc(); renderAuth();
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAcc(); });
 
