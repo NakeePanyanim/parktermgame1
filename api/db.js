@@ -50,6 +50,27 @@ async function initDb() {
             active INTEGER NOT NULL DEFAULT 1,
             UNIQUE (game, name)
         )`,
+        // โค้ดส่วนลด: type = percent (ลดเป็น %) | fixed (ลดเป็นบาท), max_uses = จำนวนครั้งที่ใช้ได้ทั้งหมด (0 = ไม่จำกัด)
+        `CREATE TABLE IF NOT EXISTS discount_codes (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            code       TEXT NOT NULL UNIQUE,
+            type       TEXT NOT NULL CHECK (type IN ('percent', 'fixed')),
+            value      INTEGER NOT NULL CHECK (value > 0),
+            max_uses   INTEGER NOT NULL DEFAULT 0 CHECK (max_uses >= 0),
+            active     INTEGER NOT NULL DEFAULT 1,
+            note       TEXT,
+            created_at INTEGER NOT NULL
+        )`,
+        // การใช้โค้ด 1 แถว = 1 ออเดอร์ (released = 1 เมื่อออเดอร์ถูกยกเลิก สิทธิ์จะคืนให้)
+        `CREATE TABLE IF NOT EXISTS code_uses (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            code_id    INTEGER NOT NULL,
+            user_id    TEXT,
+            order_id   TEXT NOT NULL UNIQUE,
+            created_at INTEGER NOT NULL,
+            released   INTEGER NOT NULL DEFAULT 0
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_code_uses_code ON code_uses (code_id, released)`,
         // บันทึกการกระทำของแอดมินในหน้าเว็บ
         `CREATE TABLE IF NOT EXISTS admin_log (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -197,6 +218,88 @@ async function deletePackage(id) {
     await db.execute({ sql: 'DELETE FROM packages WHERE id = ?', args: [id] });
 }
 
+// ---------- โค้ดส่วนลด ----------
+const codeRow = (x) => ({ id: Number(x.id), code: String(x.code), type: String(x.type), value: Number(x.value), maxUses: Number(x.max_uses), active: Number(x.active) === 1, note: x.note ? String(x.note) : '', createdAt: Number(x.created_at), used: Number(x.used || 0) });
+const CODE_SELECT = `SELECT c.*, (SELECT COUNT(*) FROM code_uses u WHERE u.code_id = c.id AND u.released = 0) AS used FROM discount_codes c`;
+
+async function listCodes() {
+    const r = await db.execute(CODE_SELECT + ' ORDER BY c.id DESC');
+    return r.rows.map(codeRow);
+}
+
+async function getCodeByCode(code) {
+    const r = await db.execute({ sql: CODE_SELECT + ' WHERE c.code = ?', args: [code] });
+    return r.rows.length ? codeRow(r.rows[0]) : null;
+}
+
+// เคยใช้โค้ดนี้แล้วหรือยัง (นับเฉพาะที่ยังไม่ถูกคืนสิทธิ์)
+async function userUsedCode(codeId, userId) {
+    if (!userId) return false;
+    const r = await db.execute({ sql: 'SELECT 1 FROM code_uses WHERE code_id = ? AND user_id = ? AND released = 0 LIMIT 1', args: [codeId, userId] });
+    return r.rows.length > 0;
+}
+
+async function createCode(c) {
+    await db.execute({
+        sql: 'INSERT INTO discount_codes (code, type, value, max_uses, active, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        args: [c.code, c.type, c.value, c.maxUses, c.active ? 1 : 0, c.note || null, Date.now()]
+    });
+}
+
+async function updateCode(id, c) {
+    await db.execute({
+        sql: 'UPDATE discount_codes SET type = ?, value = ?, max_uses = ?, active = ?, note = ? WHERE id = ?',
+        args: [c.type, c.value, c.maxUses, c.active ? 1 : 0, c.note || null, id]
+    });
+}
+
+async function deleteCode(id) {
+    await db.batch([
+        { sql: 'DELETE FROM code_uses WHERE code_id = ?', args: [id] },
+        { sql: 'DELETE FROM discount_codes WHERE id = ?', args: [id] }
+    ], 'write');
+}
+
+// จองสิทธิ์ใช้โค้ดแบบ atomic (กันคนกดพร้อมกันจนเกินจำนวน)
+// คืนค่า { ok: true, used } | { error: 'inactive' | 'full' | 'already' }
+async function redeemCode(codeId, userId, orderId) {
+    const tx = await db.transaction('write');
+    try {
+        const c = await tx.execute({ sql: 'SELECT max_uses, active FROM discount_codes WHERE id = ?', args: [codeId] });
+        if (!c.rows.length || Number(c.rows[0].active) !== 1) { await tx.rollback(); return { error: 'inactive' }; }
+        const used = Number((await tx.execute({ sql: 'SELECT COUNT(*) AS n FROM code_uses WHERE code_id = ? AND released = 0', args: [codeId] })).rows[0].n);
+        const max = Number(c.rows[0].max_uses);
+        if (max > 0 && used >= max) { await tx.rollback(); return { error: 'full' }; }
+        if (userId) {
+            const mine = await tx.execute({ sql: 'SELECT 1 FROM code_uses WHERE code_id = ? AND user_id = ? AND released = 0 LIMIT 1', args: [codeId, userId] });
+            if (mine.rows.length) { await tx.rollback(); return { error: 'already' }; }
+        }
+        await tx.execute({ sql: 'INSERT INTO code_uses (code_id, user_id, order_id, created_at) VALUES (?, ?, ?, ?)', args: [codeId, userId || null, orderId, Date.now()] });
+        await tx.commit();
+        return { ok: true, used: used + 1 };
+    } catch (e) {
+        try { await tx.rollback(); } catch (_) { /* ปิดไปแล้ว */ }
+        throw e;
+    } finally {
+        tx.close();
+    }
+}
+
+// คืนสิทธิ์ (ออเดอร์ถูกยกเลิก หรือส่งเข้า Discord ไม่สำเร็จ)
+async function releaseCodeUse(orderId) {
+    const r = await db.execute({ sql: 'UPDATE code_uses SET released = 1 WHERE order_id = ? AND released = 0', args: [orderId] });
+    return r.rowsAffected > 0;
+}
+
+async function listCodeUses(codeId, limit = 30) {
+    const r = await db.execute({
+        sql: `SELECT u.order_id, u.user_id, u.created_at, u.released, s.name FROM code_uses u
+              LEFT JOIN users s ON s.discord_id = u.user_id WHERE u.code_id = ? ORDER BY u.id DESC LIMIT ?`,
+        args: [codeId, limit]
+    });
+    return r.rows.map(x => ({ orderId: String(x.order_id), userId: x.user_id ? String(x.user_id) : '', userName: x.name ? String(x.name) : '', createdAt: Number(x.created_at), released: Number(x.released) === 1 }));
+}
+
 // ---------- บันทึกแอดมิน ----------
 async function logAdmin(actor, action, detail) {
     await db.execute({ sql: 'INSERT INTO admin_log (actor, action, detail, created_at) VALUES (?, ?, ?, ?)', args: [String(actor), action, detail || null, Date.now()] });
@@ -208,4 +311,5 @@ async function getAdminLog(limit = 50) {
 }
 
 module.exports = {
+    listCodes, getCodeByCode, userUsedCode, createCode, updateCode, deleteCode, redeemCode, releaseCodeUse, listCodeUses,
     ROLES, listUsers, setRole, listPackages, seedPackages, savePackage, deletePackage, logAdmin, getAdminLog, initDb, upsertUser, getUser, adjustPoints, getLedger, loadOrders, saveOrder, deleteOrder };
