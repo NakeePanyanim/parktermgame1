@@ -53,6 +53,7 @@ tailwind.config = {
   <nav class="flex gap-2 mb-5 text-sm overflow-x-auto" id="tabs">
     <button class="tab btn on" data-tab="users">ผู้ใช้ & เงิน</button>
     <button class="tab btn" data-tab="packages">แพ็กเกจ & ราคา</button>
+    <button class="tab btn" data-tab="codes">โค้ดส่วนลด</button>
     <button class="tab btn" data-tab="orders">ออเดอร์</button>
     <button class="tab btn" data-tab="log">บันทึกแอดมิน</button>
   </nav>
@@ -78,6 +79,29 @@ tailwind.config = {
     </div>
     <p class="text-xs text-slate-500 mb-4">ราคาที่ตั้งในหน้านี้คือ <b class="text-slate-300">ราคาปกติ</b> ยศ Reseller จะถูกลดอัตโนมัติ <b id="discPct" class="text-amber-300">10</b>% (ปัดเป็นบาทเต็ม) ลูกค้าที่เปิดหน้าเว็บอยู่จะเห็นราคาใหม่เมื่อรีเฟรช ออเดอร์เก่าไม่ได้รับผลกระทบ</p>
     <div id="pkgList" class="space-y-2"></div>
+  </section>
+
+  <!-- โค้ดส่วนลด -->
+  <section id="tab-codes" class="hidden">
+    <div class="rounded-2xl border border-line bg-panel p-4 mb-4">
+      <p class="text-sm font-semibold mb-3">สร้างโค้ดส่วนลดใหม่</p>
+      <div class="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end">
+        <label class="sm:col-span-3 text-[11px] text-slate-500">ชื่อโค้ด<input id="cCode" class="field uppercase" maxlength="32" placeholder="เช่น SAVE20" autocomplete="off"></label>
+        <label class="sm:col-span-2 text-[11px] text-slate-500">ประเภท
+          <select id="cType" class="field"><option value="percent">ลดเป็น %</option><option value="fixed">ลดเป็นบาท</option></select></label>
+        <label class="sm:col-span-2 text-[11px] text-slate-500"><span id="cValLbl">ลดกี่ %</span><input id="cValue" class="field" inputmode="numeric" placeholder="20" autocomplete="off"></label>
+        <label class="sm:col-span-2 text-[11px] text-slate-500">ใช้ได้กี่คน (0 = ไม่จำกัด)<input id="cMax" class="field" inputmode="numeric" value="0" autocomplete="off"></label>
+        <label class="sm:col-span-3 text-[11px] text-slate-500">หมายเหตุ (ไม่บังคับ)<input id="cNote" class="field" maxlength="80" autocomplete="off"></label>
+        <div class="col-span-2 sm:col-span-12 flex justify-end"><button id="cCreate" class="btn">+ สร้างโค้ด</button></div>
+      </div>
+      <ul class="text-[11px] text-slate-500 mt-3 space-y-0.5 list-disc pl-4">
+        <li>ลดซ้อนกับส่วนลด Reseller ได้ โดยคิดจากราคาหลังลดยศแล้ว และราคาสุทธิไม่ต่ำกว่า 1 บาท</li>
+        <li>ใช้กับแพ็กเกจเกมเท่านั้น ไม่ใช้กับการเติมเงินเข้าบัญชี</li>
+        <li>บัญชีที่ล็อกอิน ใช้โค้ดเดียวกันได้คนละ 1 ครั้ง ส่วนคนที่ไม่ล็อกอินนับเป็นหนึ่งสิทธิ์ต่อออเดอร์</li>
+        <li>ออเดอร์ที่ถูกยกเลิก (กด "ยอดไม่ครบ") จะคืนสิทธิ์โค้ดให้อัตโนมัติ</li>
+      </ul>
+    </div>
+    <ul id="codeList" class="space-y-2"></ul>
   </section>
 
   <!-- ออเดอร์ -->
@@ -152,9 +176,10 @@ async function boot() {
 const loaded = {};
 document.querySelectorAll('#tabs .tab').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('#tabs .tab').forEach(x => x.classList.toggle('on', x === b));
-  ['users', 'packages', 'orders', 'log'].forEach(k => $('tab-' + k).classList.toggle('hidden', k !== b.dataset.tab));
+  ['users', 'packages', 'codes', 'orders', 'log'].forEach(k => $('tab-' + k).classList.toggle('hidden', k !== b.dataset.tab));
   const k = b.dataset.tab;
   if (k === 'packages') loadPackages();
+  if (k === 'codes') loadCodes();
   if (k === 'orders') loadOrders();
   if (k === 'log') loadLog();
 }));
@@ -299,6 +324,62 @@ function renderPackages() {
     }));
   });
 }
+
+/* ---------- โค้ดส่วนลด ---------- */
+let codes = [], codeEditing = null, codeUses = {};
+const codeDesc = c => `ลด ${c.type === 'percent' ? c.value + '%' : fmt(c.value) + ' บาท'}`;
+const codeState = c => !c.active ? ['ปิดใช้งาน', 'text-slate-400 border-slate-600'] : (c.maxUses > 0 && c.used >= c.maxUses) ? ['ใช้ครบแล้ว', 'text-rose-400 border-rose-400/40'] : ['เปิดใช้งาน', 'text-emerald-400 border-emerald-400/40'];
+async function loadCodes() { await run(async () => { codes = (await api('/codes')).codes; renderCodes(); }); }
+function renderCodes() {
+  $('codeList').innerHTML = codes.length ? codes.map(c => {
+    const [st, cls] = codeState(c);
+    const left = c.maxUses > 0 ? `ใช้แล้ว ${c.used}/${c.maxUses} คน (เหลือ ${Math.max(0, c.maxUses - c.used)})` : `ใช้แล้ว ${c.used} ครั้ง (ไม่จำกัด)`;
+    const uses = codeUses[c.id];
+    return `<li class="rounded-xl border border-line bg-panel p-3 text-sm" data-id="${c.id}">
+      <div class="flex justify-between gap-3 items-start">
+        <div class="min-w-0"><p class="font-bold tracking-wide">${esc(c.code)} <span class="badge ${cls}">${esc(st)}</span></p>
+          <p class="text-slate-300">${esc(codeDesc(c))} · ${esc(left)}</p>${c.note ? `<p class="text-[11px] text-slate-500">${esc(c.note)}</p>` : ''}</div>
+        <div class="flex gap-1.5 shrink-0 flex-wrap justify-end">
+          <button class="btn c-edit">${codeEditing === c.id ? 'ปิด' : 'แก้ไข'}</button>
+          <button class="btn c-uses">การใช้งาน</button>
+          <button class="btn danger c-del">ลบ</button>
+        </div>
+      </div>
+      ${codeEditing === c.id ? `<div class="grid grid-cols-2 sm:grid-cols-12 gap-2 items-end mt-3 pt-3 border-t border-line">
+        <label class="sm:col-span-3 text-[11px] text-slate-500">ประเภท<select class="field e-type"><option value="percent" ${c.type === 'percent' ? 'selected' : ''}>ลดเป็น %</option><option value="fixed" ${c.type === 'fixed' ? 'selected' : ''}>ลดเป็นบาท</option></select></label>
+        <label class="sm:col-span-2 text-[11px] text-slate-500">ค่าลด<input class="field e-value" inputmode="numeric" value="${esc(c.value)}"></label>
+        <label class="sm:col-span-3 text-[11px] text-slate-500">ใช้ได้กี่คน (0 = ไม่จำกัด)<input class="field e-max" inputmode="numeric" value="${esc(c.maxUses)}"></label>
+        <label class="sm:col-span-4 text-[11px] text-slate-500">หมายเหตุ<input class="field e-note" maxlength="80" value="${esc(c.note)}"></label>
+        <label class="sm:col-span-3 flex items-center gap-2 text-sm text-slate-300 pb-2"><input type="checkbox" class="e-active h-4 w-4 accent-amber-500" ${c.active ? 'checked' : ''}> เปิดใช้งาน</label>
+        <div class="sm:col-span-9 flex justify-end"><button class="btn c-save">บันทึก</button></div>
+      </div>` : ''}
+      ${uses ? `<ul class="mt-3 pt-3 border-t border-line space-y-1 text-[12px]">${uses.length ? uses.map(u => `<li class="flex justify-between gap-3 ${u.released ? 'text-slate-500 line-through' : 'text-slate-300'}"><span class="truncate">${u.userId ? esc(u.userName || u.userId) : 'ไม่ได้ล็อกอิน'} · #${esc(u.orderId.slice(-6).toUpperCase())}</span><span class="shrink-0">${esc(when(u.createdAt))}${u.released ? ' (คืนสิทธิ์)' : ''}</span></li>`).join('') : '<li class="text-slate-500">ยังไม่มีการใช้งาน</li>'}</ul>` : ''}
+    </li>`;
+  }).join('') : '<li class="text-center text-slate-500 py-8">ยังไม่มีโค้ดส่วนลด</li>';
+  document.querySelectorAll('#codeList li[data-id]').forEach(li => {
+    const id = Number(li.dataset.id), c = codes.find(x => x.id === id);
+    li.querySelector('.c-edit').addEventListener('click', () => { codeEditing = codeEditing === id ? null : id; renderCodes(); });
+    li.querySelector('.c-uses').addEventListener('click', () => run(async () => {
+      if (codeUses[id]) delete codeUses[id]; else codeUses[id] = (await api(`/codes/${id}/uses`)).uses;
+      renderCodes();
+    }));
+    li.querySelector('.c-del').addEventListener('click', () => run(async () => {
+      if (!confirm(`ลบโค้ด ${c.code} ?\n(ประวัติการใช้งานของโค้ดนี้จะหายไปด้วย ถ้าแค่ต้องการหยุดใช้ ให้ปิดใช้งานแทน)`)) return;
+      await api(`/codes/${id}/delete`, {}); toast('ลบแล้ว'); delete codeUses[id]; await loadCodes();
+    }));
+    const save = li.querySelector('.c-save');
+    if (save) save.addEventListener('click', () => run(async () => {
+      await api('/codes/' + id, { type: li.querySelector('.e-type').value, value: Number(li.querySelector('.e-value').value.replace(/[,\s]/g, '')), maxUses: Number(li.querySelector('.e-max').value.replace(/[,\s]/g, '') || 0), note: li.querySelector('.e-note').value.trim(), active: li.querySelector('.e-active').checked });
+      toast('บันทึกแล้ว'); codeEditing = null; await loadCodes();
+    }));
+  });
+}
+$('cType').addEventListener('change', () => { $('cValLbl').textContent = $('cType').value === 'percent' ? 'ลดกี่ %' : 'ลดกี่บาท'; $('cValue').placeholder = $('cType').value === 'percent' ? '20' : '50'; });
+$('cCode').addEventListener('input', () => { $('cCode').value = $('cCode').value.toUpperCase(); });
+$('cCreate').addEventListener('click', () => run(async () => {
+  await api('/codes', { code: $('cCode').value.trim(), type: $('cType').value, value: Number($('cValue').value.replace(/[,\s]/g, '')), maxUses: Number($('cMax').value.replace(/[,\s]/g, '') || 0), note: $('cNote').value.trim() });
+  toast('สร้างโค้ดแล้ว'); $('cCode').value = ''; $('cValue').value = ''; $('cNote').value = ''; await loadCodes();
+}));
 
 /* ---------- ออเดอร์ ---------- */
 async function loadOrders() {
