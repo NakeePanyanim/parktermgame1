@@ -117,6 +117,17 @@ const findPackage = (gameKey, name) => (PKG[gameKey] || []).find(p => p.name ===
 // ราคาตามยศ: Reseller ลด DISCOUNT_PCT% (ปัดเป็นบาทเต็ม) ใช้กับแพ็กเกจเกมเท่านั้น ไม่ใช้กับการเติมเงินเข้าบัญชี
 const priceFor = (user, base) => (user && user.role === 'reseller' && DISCOUNT_PCT > 0)
     ? Math.max(1, Math.round(base * (100 - DISCOUNT_PCT) / 100)) : base;
+
+// ---------- โค้ดส่วนลด: คำนวณจากราคา "หลังลดยศแล้ว" (ซ้อนกันได้) ราคาสุทธิไม่ต่ำกว่า 1 บาท ----------
+const codeLabel = (c) => c.type === 'percent' ? `${c.value}%` : `${c.value.toLocaleString('en-US')} บาท`;
+function evalCode(c, price) {
+    if (!c || !c.active) return { error: 'โค้ดไม่ถูกต้อง หรือใช้ไม่ได้แล้ว' };
+    if (c.maxUses > 0 && c.used >= c.maxUses) return { error: 'โค้ดนี้ถูกใช้ครบจำนวนแล้ว' };
+    const discount = c.type === 'percent' ? Math.round(price * c.value / 100) : c.value;
+    const after = Math.max(1, price - discount);
+    if (after >= price) return { error: 'โค้ดนี้ใช้กับแพ็กเกจนี้ไม่ได้ (ราคาต่ำเกินกว่าจะลด)' };
+    return { after, discount: price - after };
+}
 // ================================================================
 
 // ---------- ออเดอร์: เก็บใน Turso (โหลดเข้าหน่วยความจำตอนเริ่มเซิร์ฟเวอร์) ----------
@@ -176,6 +187,17 @@ function payText(o) {
     return '👛 **เงินในบัญชี** (ยังไม่หักเงิน จะหักเมื่อกด "รับเงิน")';
 }
 
+// ข้อความแจ้งการใช้โค้ดส่วนลดในออเดอร์ (แสดงใน Discord)
+function codeText(o) {
+    const lbl = o.codeType === 'percent' ? `${o.codeValue}%` : `${o.codeValue.toLocaleString('en-US')} บาท`;
+    const left = o.codeMax > 0
+        ? `ใช้ไปแล้ว ${o.codeUsed}/${o.codeMax} คน (เหลือ ${Math.max(0, o.codeMax - o.codeUsed)})`
+        : `ใช้ไปแล้ว ${o.codeUsed} ครั้ง (ไม่จำกัดจำนวน)`;
+    return `โค้ด ${code(o.code)} ลด **${lbl}** (−${o.codeDiscount.toLocaleString('en-US')} บาท)\n` +
+        `จาก ${o.priceBeforeCode.toLocaleString('en-US')} → เหลือ **${o.price.toLocaleString('en-US')} บาท**\n${left}` +
+        (o.codeReleased ? '\n↩️ ออเดอร์ถูกยกเลิก คืนสิทธิ์โค้ดแล้ว' : '');
+}
+
 function buildMessage(o) {
     const s = STATUS[o.status];
     const gameKey = GAMES[o.game] ? o.game : 'opm'; // ออเดอร์เก่าที่ไม่มี game = One Punch Man
@@ -201,8 +223,9 @@ function buildMessage(o) {
             ...(o.userId && gameKey !== 'points' ? [{ name: '🔗 บัญชีเว็บ', value: `<@${o.userId}>`, inline: true }] : []),
             { name: '📘 Facebook', value: o.facebook || '-', inline: false },
             { name: '📦 แพ็กเกจ', value: o.packageName, inline: true },
-            { name: '💰 ยอดที่ต้องได้รับ', value: `**${o.price.toLocaleString('en-US')} บาท**` + (o.basePrice && o.basePrice !== o.price ? `\n🏷️ ส่วนลด Reseller ${o.discountPct}% (ราคาปกติ ${o.basePrice.toLocaleString('en-US')})` : ''), inline: true },
-            { name: '💳 ชำระเงินด้วย', value: payText(o), inline: false }
+            { name: '💰 ยอดที่ต้องได้รับ', value: `**${o.price.toLocaleString('en-US')} บาท**` + (o.basePrice && o.basePrice !== (o.priceBeforeCode || o.price) ? `\n🏷️ ส่วนลด Reseller ${o.discountPct}% (ราคาปกติ ${o.basePrice.toLocaleString('en-US')})` : ''), inline: true },
+            { name: '💳 ชำระเงินด้วย', value: payText(o), inline: false },
+            ...(o.code ? [{ name: '🎟️ โค้ดส่วนลด', value: codeText(o), inline: false }] : [])
         )
         .setFooter({ text: o.handledBy ? `ล่าสุดโดย ${o.handledBy}` : 'รอแอดมินดำเนินการ' })
         .setTimestamp(new Date(o.updatedAt));
@@ -294,9 +317,29 @@ client.on(Events.InteractionCreate, async (interaction) => {
                         `คืนเงินออเดอร์ ${tag} (ยกเลิกโดยแอดมิน)`, handler);
                     order.refunded = true;
                 }
+                if (action === 'insufficient' && order.codeId && !order.codeReleased) {
+                    await db.releaseCodeUse(order.id); // ออเดอร์ถูกยกเลิก คืนสิทธิ์โค้ดให้
+                    order.codeReleased = true;
+                }
             } catch (e) {
                 console.error('ปรับยอดเงินในบัญชีไม่สำเร็จ:', e.message);
                 return interaction.followUp({ content: 'ปรับยอดเงินในบัญชีไม่สำเร็จ (สถานะไม่เปลี่ยน) กรุณากดใหม่อีกครั้ง', flags: MessageFlags.Ephemeral });
+            }
+            order.status = action;
+            order.updatedAt = Date.now();
+            order.handledBy = handler;
+            await db.saveOrder(order).catch(e => console.error('บันทึกออเดอร์ไม่สำเร็จ:', e.message));
+            return interaction.editReply(buildMessage(order));
+        }
+
+        if (action === 'insufficient' && order.codeId && !order.codeReleased) {
+            await interaction.deferUpdate();
+            try {
+                await db.releaseCodeUse(order.id); // ออเดอร์ถูกยกเลิก คืนสิทธิ์โค้ดให้
+                order.codeReleased = true;
+            } catch (e) {
+                console.error('คืนสิทธิ์โค้ดไม่สำเร็จ:', e.message);
+                return interaction.followUp({ content: 'คืนสิทธิ์โค้ดไม่สำเร็จ (สถานะไม่เปลี่ยน) กรุณากดใหม่อีกครั้ง', flags: MessageFlags.Ephemeral });
             }
             order.status = action;
             order.updatedAt = Date.now();
@@ -401,6 +444,20 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
         return res.status(400).json({ success: false, message: badField.error });
     }
 
+    // โค้ดส่วนลด (ไม่บังคับ) ใช้กับแพ็กเกจเกมเท่านั้น
+    const priceBeforeCode = price;
+    let codeUse = null;
+    const codeStr = clean(req.body.code, 40).toUpperCase();
+    if (codeStr) {
+        if (game.custom) return res.status(400).json({ success: false, message: 'โค้ดส่วนลดใช้กับแพ็กเกจเกมเท่านั้น (ไม่ใช้กับการเติมเงินเข้าบัญชี)' });
+        const c = await db.getCodeByCode(codeStr);
+        const ev = evalCode(c, price);
+        if (ev.error) return res.status(400).json({ success: false, message: ev.error });
+        if (user && await db.userUsedCode(c.id, user.id)) return res.status(400).json({ success: false, message: 'คุณเคยใช้โค้ดนี้แล้ว' });
+        codeUse = { c, discount: ev.discount };
+        price = ev.after;
+    }
+
     let voucherCode = null;
     let dupOf = null;
     if (payMethod === 'voucher') {
@@ -422,7 +479,22 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
 
     const id = crypto.randomBytes(12).toString('hex');
     const now = Date.now();
-    const order = { id, game: gameKey, ...(user ? { userId: user.id, userName: user.name } : {}), ...data, facebook, packageName, price, ...(basePrice !== price ? { basePrice, discountPct: DISCOUNT_PCT } : {}), payMethod, ...(voucherCode ? { voucherCode } : {}), status: 'checking', createdAt: now, updatedAt: now };
+
+    // จองสิทธิ์โค้ดแบบ atomic (กันหลายคนกดพร้อมกันจนเกินจำนวน) ถ้าขั้นตอนหลังจากนี้พัง จะคืนสิทธิ์ให้
+    let codeFields = {};
+    if (codeUse) {
+        try {
+            const rr = await db.redeemCode(codeUse.c.id, user ? user.id : null, id);
+            if (rr.error) {
+                return res.status(400).json({ success: false, message: rr.error === 'full' ? 'โค้ดนี้ถูกใช้ครบจำนวนแล้ว' : rr.error === 'already' ? 'คุณเคยใช้โค้ดนี้แล้ว' : 'โค้ดไม่ถูกต้อง หรือใช้ไม่ได้แล้ว' });
+            }
+            codeFields = { codeId: codeUse.c.id, code: codeUse.c.code, codeType: codeUse.c.type, codeValue: codeUse.c.value, codeDiscount: codeUse.discount, priceBeforeCode, codeUsed: rr.used, codeMax: codeUse.c.maxUses };
+        } catch (e) {
+            console.error('จองสิทธิ์โค้ดไม่สำเร็จ:', e.message);
+            return res.status(503).json({ success: false, message: 'ระบบโค้ดส่วนลดขัดข้อง กรุณาลองใหม่อีกครั้ง' });
+        }
+    }
+    const order = { id, game: gameKey, ...(user ? { userId: user.id, userName: user.name } : {}), ...data, facebook, packageName, price, ...(basePrice !== priceBeforeCode ? { basePrice, discountPct: DISCOUNT_PCT } : {}), payMethod, ...(voucherCode ? { voucherCode } : {}), ...codeFields, status: 'checking', createdAt: now, updatedAt: now };
     if (dupOf) order.dupOf = dupOf.id;
 
     // เก็บก่อนส่ง Discord ถ้าส่งไม่ผ่านค่อยลบทิ้ง
@@ -436,6 +508,7 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
     } catch (e) {
         delete orders[id];
         db.deleteOrder(id).catch(() => {});
+        if (codeUse) db.releaseCodeUse(id).catch(() => {});
         console.error('ส่งออเดอร์เข้า Discord ไม่สำเร็จ:', e.message);
         return res.status(502).json({ success: false, message: payMethod === 'balance' ? 'ระบบแจ้งเตือนแอดมินขัดข้อง กรุณาลองใหม่อีกครั้ง (ยังไม่มีการหักเงินในบัญชี)' : 'ระบบแจ้งเตือนแอดมินขัดข้อง กรุณาลองใหม่อีกครั้ง (ซองของคุณยังไม่ถูกใช้)' });
     }
@@ -443,6 +516,7 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
     return res.json({
         success: true,
         orderId: id,
+        price,
         message: payMethod === 'balance' ? 'ส่งออเดอร์แล้ว รอแอดมินตรวจสอบ' : 'ส่งออเดอร์แล้ว กำลังตรวจสอบลิงก์ซอง'
     });
 });
@@ -578,6 +652,32 @@ app.get('/api/packages', async (req, res) => {
     res.json({ success: true, packages: out, discountPct: user && user.role === 'reseller' ? DISCOUNT_PCT : 0 });
 });
 
+// ตรวจโค้ดส่วนลดก่อนกดซื้อ (ใช้แสดงราคาใหม่ในหน้าเว็บ ยังไม่ใช้สิทธิ์จริง)
+const codeLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000, max: 120, standardHeaders: true, legacyHeaders: false,
+    message: { success: false, message: 'ตรวจโค้ดบ่อยเกินไป กรุณารอสักครู่' }
+});
+app.post('/api/discount/check', codeLimiter, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const user = await getSessionUser(req);
+        const gameKey = clean(req.body.game, 20), packageName = clean(req.body.packageName, 100), codeStr = clean(req.body.code, 40).toUpperCase();
+        if (!hasOwn(GAMES, gameKey) || GAMES[gameKey].custom) return res.status(400).json({ success: false, message: 'โค้ดส่วนลดใช้กับแพ็กเกจเกมเท่านั้น' });
+        const pkg = findPackage(gameKey, packageName);
+        if (!pkg) return res.status(400).json({ success: false, message: 'กรุณาเลือกแพ็กเกจก่อน' });
+        if (!codeStr) return res.status(400).json({ success: false, message: 'กรุณากรอกโค้ด' });
+        const price = priceFor(user, pkg.price);
+        const c = await db.getCodeByCode(codeStr);
+        const ev = evalCode(c, price);
+        if (ev.error) return res.status(400).json({ success: false, message: ev.error });
+        if (user && await db.userUsedCode(c.id, user.id)) return res.status(400).json({ success: false, message: 'คุณเคยใช้โค้ดนี้แล้ว' });
+        return res.json({ success: true, code: c.code, label: codeLabel(c), before: price, after: ev.after, discount: ev.discount });
+    } catch (e) {
+        console.error('/api/discount/check ผิดพลาด:', e.message);
+        return res.status(500).json({ success: false, message: 'ตรวจโค้ดไม่สำเร็จ กรุณาลองใหม่' });
+    }
+});
+
 // ---------- API หลังบ้านสำหรับแอดมิน (ต้องมียศ admin) ----------
 const adminLimiter = rateLimit({
     windowMs: 10 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false,
@@ -696,6 +796,66 @@ admin.post('/packages/:id/delete', wrap(async (req, res) => {
     await loadPackages();
     await db.logAdmin(`${req.admin.name} (${req.admin.id})`, 'ลบแพ็กเกจ', `${before.game} / ${before.name} / ราคา ${before.price}`);
     res.json({ success: true });
+}));
+
+// โค้ดส่วนลด: ลดเป็น % (1-99) หรือเป็นบาท, จำกัดจำนวนครั้งที่ใช้ได้ (0 = ไม่จำกัด)
+function readCode(body, creating) {
+    const type = clean(body.type, 10);
+    if (!['percent', 'fixed'].includes(type)) return { error: 'ประเภทโค้ดไม่ถูกต้อง' };
+    const value = Number(body.value), maxUses = Number(body.maxUses ?? 0);
+    if (!Number.isInteger(value) || value < 1 || value > (type === 'percent' ? 99 : 100000)) {
+        return { error: type === 'percent' ? 'ลดเป็น % ต้องเป็นจำนวนเต็ม 1 - 99' : 'ลดเป็นบาท ต้องเป็นจำนวนเต็ม 1 - 100,000' };
+    }
+    if (!Number.isInteger(maxUses) || maxUses < 0 || maxUses > 1000000) return { error: 'จำนวนผู้ใช้ต้องเป็นจำนวนเต็ม 0 ขึ้นไป (0 = ไม่จำกัด)' };
+    const c = { type, value, maxUses, active: body.active !== false, note: clean(body.note, 80) };
+    if (creating) {
+        const code = clean(body.code, 40).toUpperCase();
+        if (!/^[A-Z0-9_-]{3,32}$/.test(code)) return { error: 'ชื่อโค้ดใช้ได้เฉพาะ A-Z ตัวเลข _ - ความยาว 3-32 ตัว' };
+        c.code = code;
+    }
+    return { c };
+}
+const codeDesc = (c) => `${c.code || ''} ${c.type === 'percent' ? c.value + '%' : c.value + ' บาท'} / ${c.maxUses ? c.maxUses + ' คน' : 'ไม่จำกัด'} / ${c.active ? 'เปิด' : 'ปิด'}`.trim();
+
+admin.get('/codes', wrap(async (req, res) => {
+    res.json({ success: true, codes: await db.listCodes() });
+}));
+admin.post('/codes', wrap(async (req, res) => {
+    const r = readCode(req.body, true);
+    if (r.error) return fail(res, r.error);
+    try {
+        await db.createCode(r.c);
+    } catch (e) {
+        if (/unique/i.test(String(e.message))) return fail(res, 'มีโค้ดนี้อยู่แล้ว');
+        throw e;
+    }
+    await db.logAdmin(`${req.admin.name} (${req.admin.id})`, 'สร้างโค้ดส่วนลด', codeDesc(r.c));
+    res.json({ success: true });
+}));
+admin.post('/codes/:id', wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return fail(res, 'ไม่พบโค้ด');
+    const r = readCode(req.body, false);
+    if (r.error) return fail(res, r.error);
+    const before = (await db.listCodes()).find(c => c.id === id);
+    if (!before) return fail(res, 'ไม่พบโค้ด', 404);
+    await db.updateCode(id, r.c);
+    await db.logAdmin(`${req.admin.name} (${req.admin.id})`, 'แก้โค้ดส่วนลด', codeDesc({ ...r.c, code: before.code }));
+    res.json({ success: true });
+}));
+admin.post('/codes/:id/delete', wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return fail(res, 'ไม่พบโค้ด');
+    const before = (await db.listCodes()).find(c => c.id === id);
+    if (!before) return fail(res, 'ไม่พบโค้ด', 404);
+    await db.deleteCode(id);
+    await db.logAdmin(`${req.admin.name} (${req.admin.id})`, 'ลบโค้ดส่วนลด', codeDesc(before));
+    res.json({ success: true });
+}));
+admin.get('/codes/:id/uses', wrap(async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id < 1) return fail(res, 'ไม่พบโค้ด');
+    res.json({ success: true, uses: await db.listCodeUses(id, 30) });
 }));
 
 admin.get('/log', wrap(async (req, res) => {
