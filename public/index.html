@@ -257,6 +257,17 @@ tailwind.config = {
           </div>
         </div>
 
+        <!-- โค้ดส่วนลด (ไม่บังคับ) -->
+        <div id="codeBox" class="mb-4">
+          <label for="codeInput" class="block text-xs font-medium text-slate-300 mb-1.5">โค้ดส่วนลด <span class="text-slate-500">(ถ้ามี)</span></label>
+          <div class="flex gap-2">
+            <input type="text" id="codeInput" class="field uppercase" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" placeholder="กรอกโค้ดส่วนลด">
+            <button type="button" id="codeBtn" class="shrink-0 px-4 rounded-xl border border-line text-sm font-medium hover:border-amber-400/60 hover:text-amber-300 transition disabled:opacity-50">ใช้โค้ด</button>
+          </div>
+          <p id="codeMsg" class="text-xs mt-1.5 hidden"></p>
+          <p class="err text-xs text-red-400 mt-1 hidden" data-for="codeInput">กรุณากดปุ่ม "ใช้โค้ด" หรือลบโค้ดออกก่อนกดยืนยัน</p>
+        </div>
+
         <!-- วิธีชำระเงิน (แสดงเมื่อล็อกอิน และไม่ใช่การเติม Point) -->
         <div id="payBox" class="hidden grid sm:grid-cols-2 gap-3 mb-4" role="radiogroup" aria-label="วิธีชำระเงิน">
           <label class="pay-opt block cursor-pointer">
@@ -519,6 +530,9 @@ let game = 'opm';
 let selected = null;
 let me = null, authEnabled = false;
 let payMethod = 'voucher';
+let codeInfo = null; // โค้ดที่ตรวจผ่านแล้ว { code, label, before, after, discount, name }
+// ราคาที่ลูกค้าต้องจ่ายจริง (หลังลดยศและโค้ด) ฝั่งเซิร์ฟเวอร์คำนวณซ้ำเองเสมอ
+const curPrice = () => !selected ? 0 : (codeInfo && !selected.custom && codeInfo.name === selected.name && codeInfo.before === selected.price) ? codeInfo.after : selected.price;
 let pkgLoaded = false, lastRoleKey = null;
 const ROLE_TH = { member: 'Member', reseller: 'Reseller', admin: 'Admin' };
 function currentPay() { return (me && game !== 'points' && payMethod === 'balance') ? 'balance' : 'voucher'; }
@@ -554,6 +568,7 @@ function renderPackages() {
     if (selected && !selected.custom && selected.name === p.name) label.querySelector('input').checked = true;
     label.querySelector('input').addEventListener('change', () => {
       selected = p;
+      recheckCode();
       if (g.custom) $('customAmount').value = p.qty;
       updateSummary(); clearErr('package'); clearErr('customAmount');
     });
@@ -563,7 +578,7 @@ function renderPackages() {
 
 function updateSummary() {
   const g = GAMES[game];
-  const price = selected ? selected.price : 0;
+  const price = curPrice();
   $('displayPrice').textContent = fmt(price);
   $('displayPriceM').textContent = fmt(price);
   $('stepAmount').textContent = selected ? `= ${fmt(price)} บาท` : '';
@@ -572,6 +587,7 @@ function updateSummary() {
     ...g.fields.map(f => [f.label, getVal(f.key) || '-']),
     ['แพ็กเกจ', selected ? selected.name : 'ยังไม่ได้เลือก'],
     ...(game !== 'points' ? [['ชำระด้วย', currentPay() === 'balance' ? 'เงินในบัญชี' : 'ซองอั่งเปา']] : []),
+    ...(codeInfo && curPrice() === codeInfo.after ? [['โค้ดส่วนลด', `${codeInfo.code} (−${fmt(codeInfo.discount)} บาท)`]] : []),
     [g.perLabel, selected ? (unit(selected) * g.perMult).toFixed(2) + ' ฿' : '-']
   ];
   $('sumList').innerHTML = rows.map(([k, v]) =>
@@ -584,13 +600,50 @@ function updateSummary() {
   renderPay();
 }
 
+function setCodeMsg(msg, ok) {
+  const el = $('codeMsg');
+  if (!msg) { el.classList.add('hidden'); return; }
+  el.textContent = msg;
+  el.className = 'text-xs mt-1.5 ' + (ok ? 'text-emerald-400' : 'text-rose-400');
+}
+async function applyCode() {
+  const code = $('codeInput').value.trim().toUpperCase();
+  codeInfo = null;
+  if (!code) { setCodeMsg('กรุณากรอกโค้ด', false); updateSummary(); return; }
+  if (!selected || selected.custom) { setCodeMsg('กรุณาเลือกแพ็กเกจก่อน แล้วค่อยกดใช้โค้ด', false); updateSummary(); return; }
+  $('codeBtn').disabled = true;
+  try {
+    const res = await fetch('/api/discount/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ game, packageName: selected.name, code }) });
+    const d = await res.json();
+    if (d.success) {
+      codeInfo = { code: d.code, label: d.label, before: d.before, after: d.after, discount: d.discount, name: selected.name };
+      setCodeMsg(`ใช้โค้ด ${d.code} สำเร็จ ลด ${d.label} (−${fmt(d.discount)} บาท) เหลือ ${fmt(d.after)} บาท`, true);
+    } else setCodeMsg(d.message || 'ตรวจโค้ดไม่สำเร็จ', false);
+  } catch (e) { setCodeMsg('เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ลองใหม่อีกครั้ง', false); }
+  $('codeBtn').disabled = false; clearErr('codeInput'); updateSummary();
+}
+// เปลี่ยนแพ็กเกจ/ราคา: โค้ดที่ตรวจไว้ต้องตรวจใหม่ (ส่วนลดขึ้นกับราคาแพ็กเกจ)
+function recheckCode() {
+  const had = !!codeInfo;
+  codeInfo = null; setCodeMsg('', true);
+  if (had && $('codeInput').value.trim() && selected && !selected.custom) applyCode();
+}
+$('codeBtn').addEventListener('click', applyCode);
+$('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); applyCode(); } });
+$('codeInput').addEventListener('input', () => {
+  const el = $('codeInput'); el.value = el.value.toUpperCase();
+  clearErr('codeInput');
+  if (codeInfo && el.value.trim() !== codeInfo.code) { codeInfo = null; setCodeMsg('', true); updateSummary(); }
+});
+
 function renderPay() {
+  $('codeBox').classList.toggle('hidden', !!GAMES[game].custom); // โค้ดใช้กับแพ็กเกจเกมเท่านั้น
   const show = !!me && game !== 'points';
   if (!show) payMethod = 'voucher';
   $('payBox').classList.toggle('hidden', !show);
   const radio = document.querySelector(`input[name="pay"][value="${payMethod}"]`);
   if (radio) radio.checked = true;
-  const bal = me ? me.points : 0, price = selected ? selected.price : 0;
+  const bal = me ? me.points : 0, price = curPrice();
   $('payBalSub').textContent = `คงเหลือ ${fmt(bal)} บาท`;
   const isBal = currentPay() === 'balance';
   $('voucherBox').classList.toggle('hidden', isBal);
@@ -620,7 +673,7 @@ FIELD_KEYS.forEach(id => $(id).addEventListener('input', updateSummary));
 function setGame(key) {
   if (!GAMES[key]) return;
   if (key === 'points' && !me) return;
-  game = key; selected = null; payMethod = 'voucher';
+  game = key; selected = null; payMethod = 'voucher'; codeInfo = null; setCodeMsg('', true); $('codeInput').value = '';
   const g = GAMES[key];
   $('customBox').classList.toggle('hidden', !g.custom);
   $('customAmount').value = '';
@@ -661,7 +714,8 @@ function validate() {
   g.fields.forEach(f => { const v = getVal(f.key); mark(f.key, f.valid ? f.valid(v) : v.length > 0); });
   mark('facebook', $('facebook').value.trim().length > 0);
   if (g.custom) mark('customAmount', !!selected); else mark('package', !!selected);
-  if (currentPay() === 'balance') mark('pay', !!selected && me.points >= selected.price);
+  if (!g.custom && $('codeInput').value.trim() && !codeInfo) mark('codeInput', false);
+  if (currentPay() === 'balance') mark('pay', !!selected && me.points >= curPrice());
   else mark('voucherLink', VOUCHER_RE.test($('voucherLink').value.trim()));
   if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
   return ok;
@@ -706,13 +760,14 @@ async function submitOrder(e) {
     game,
     facebook: $('facebook').value.trim(),
     packageName: selected.name,
-    expectedPrice: String(selected.price),
+    expectedPrice: String(curPrice()),
     payMethod: currentPay()
   };
   if (payload.payMethod === 'voucher') payload.voucherLink = $('voucherLink').value.trim();
   if (g.custom) payload.amount = selected.price;
+  if (!g.custom && codeInfo) payload.code = codeInfo.code;
   g.fields.forEach(f => { payload[f.key] = getVal(f.key); });
-  const snapshot = { ...payload, price: selected.price };
+  const snapshot = { ...payload, price: curPrice() };
 
   setLoading(true);
   try {
@@ -723,7 +778,9 @@ async function submitOrder(e) {
     });
     const result = await res.json();
     if (result.success) {
+      if (result.price) snapshot.price = result.price; // ราคาสุทธิที่เซิร์ฟเวอร์คิดจริง
       beginTracking(result.orderId, snapshot);
+      codeInfo = null; setCodeMsg('', true);
       $('topupForm').reset();
       document.querySelectorAll('input[name="pkg"]').forEach(r => r.checked = false);
       selected = null; updateSummary(); // updateSummary -> renderPay ตั้งปุ่มวิธีชำระเงินกลับตามที่เลือกไว้
@@ -888,6 +945,7 @@ async function loadPackages() {
   } catch (e) { pkgLoaded = true; /* เน็ตมีปัญหา แสดงว่าไม่มีแพ็กเกจแทนการค้าง */ }
   const g = GAMES[game];
   if (selected && !selected.custom && !g.custom) selected = g.packages.find(p => p.name === selected.name) || null;
+  recheckCode(); // ราคาอาจเปลี่ยน (แอดมินแก้ราคา / ยศเปลี่ยน)
   renderPackages(); updateSummary();
 }
 
