@@ -914,6 +914,53 @@ admin.get('/codes/:id/uses', wrap(async (req, res) => {
     res.json({ success: true, uses: await db.listCodeUses(id, 30) });
 }));
 
+// ---------- สถิติยอดขาย / ยอดเติมเงิน (ตัดรอบตามเวลาไทย UTC+7 ไม่มีเวลาออมแสง) ----------
+// ยอดขาย = ออเดอร์แพ็กเกจเกมที่แอดมินกด "รับเงิน" หรือ "เสร็จสิ้น" แล้ว
+// ยอดเติมเงิน = ออเดอร์เติม Point ที่แอดมินรับเงินแล้ว (Point เข้าบัญชีลูกค้าแล้ว)
+// เวลาที่ใช้ = เวลาที่แอดมินกดปุ่มล่าสุดของออเดอร์นั้น (updatedAt) ไม่นับออเดอร์ที่ยกเลิกและที่ยังรอตรวจ
+const TH_OFFSET = 7 * 3600 * 1000, DAY_MS = 86400000, DAILY_DAYS = 14;
+admin.get('/stats', wrap(async (req, res) => {
+    const now = Date.now(), nowTh = now + TH_OFFSET, dTh = new Date(nowTh);
+    const dayStart = Math.floor(nowTh / DAY_MS) * DAY_MS - TH_OFFSET; // 00:00 วันนี้ (เวลาไทย)
+    const starts = {
+        day: dayStart,
+        week: dayStart - ((dTh.getUTCDay() + 6) % 7) * DAY_MS, // สัปดาห์เริ่มวันจันทร์
+        month: Date.UTC(dTh.getUTCFullYear(), dTh.getUTCMonth(), 1) - TH_OFFSET,
+        year: Date.UTC(dTh.getUTCFullYear(), 0, 1) - TH_OFFSET,
+        all: 0
+    };
+    const blank = () => ({ sales: 0, salesCount: 0, salesVoucher: 0, salesBalance: 0, byGame: {}, topup: 0, topupCount: 0, topupVoucher: 0, topupBank: 0 });
+    const periods = {};
+    for (const k of Object.keys(starts)) periods[k] = blank();
+    const firstDay = dayStart - (DAILY_DAYS - 1) * DAY_MS;
+    const daily = Array.from({ length: DAILY_DAYS }, (_, i) => ({ date: new Date(firstDay + i * DAY_MS + TH_OFFSET).toISOString().slice(0, 10), sales: 0, topup: 0 }));
+    const pending = { sales: 0, topup: 0 };
+    for (const o of Object.values(orders)) {
+        const game = o.game || 'opm', isTopup = game === 'points';
+        if (o.status === 'checking') { pending[isTopup ? 'topup' : 'sales']++; continue; }
+        const counted = isTopup ? o.status === 'done' : (o.status === 'received' || o.status === 'done');
+        if (!counted) continue;
+        const t = Number(o.updatedAt || o.createdAt) || 0, price = Number(o.price) || 0;
+        const viaBalance = o.payMethod === 'balance', viaBank = o.payMethod === 'bank';
+        for (const k of Object.keys(starts)) {
+            if (t < starts[k]) continue;
+            const p = periods[k];
+            if (isTopup) {
+                p.topup += price; p.topupCount++;
+                if (viaBank) p.topupBank += price; else p.topupVoucher += price;
+            } else {
+                p.sales += price; p.salesCount++;
+                if (viaBalance) p.salesBalance += price; else p.salesVoucher += price;
+                const g = (p.byGame[game] = p.byGame[game] || { sales: 0, count: 0 });
+                g.sales += price; g.count++;
+            }
+        }
+        const i = Math.floor((t - firstDay) / DAY_MS);
+        if (i >= 0 && i < DAILY_DAYS) daily[i][isTopup ? 'topup' : 'sales'] += price;
+    }
+    res.json({ success: true, periods, daily, pending, generatedAt: now });
+}));
+
 admin.get('/log', wrap(async (req, res) => {
     res.json({ success: true, log: await db.getAdminLog(80) });
 }));
