@@ -247,7 +247,7 @@ async function openUser(id) {
         <p class="mt-4 text-xs font-medium text-slate-300">ออเดอร์ล่าสุด</p>
         <ul class="mt-1.5 space-y-1.5 max-h-56 overflow-y-auto pr-1 text-sm">
           ${d.orders.length ? d.orders.map(o => `<li class="flex justify-between gap-3 rounded-lg bg-ink border border-line px-3 py-2">
-            <span class="min-w-0"><span class="block truncate">${esc(GAME_TH[o.game] || o.game)} · ${esc(o.packageName)}</span><span class="block text-[11px] text-slate-500">#${esc(o.id.slice(-6).toUpperCase())} · ${esc(when(o.createdAt))} · ${o.payMethod === 'balance' ? 'เงินในบัญชี' : 'ซอง'}</span></span>
+            <span class="min-w-0"><span class="block truncate">${esc(GAME_TH[o.game] || o.game)} · ${esc(o.packageName)}</span><span class="block text-[11px] text-slate-500">#${esc(o.id.slice(-6).toUpperCase())} · ${esc(when(o.createdAt))} · ${o.payMethod === 'balance' ? 'เงินในบัญชี' : o.payMethod === 'bank' ? 'โอนธนาคาร' : 'ซอง'}</span></span>
             <span class="text-right shrink-0"><span class="block font-bold">${fmt(o.price)} ฿</span><span class="badge ${STATUS_CLR[o.status] || ''}">${esc(STATUS_TH[o.status] || o.status)}</span></span></li>`).join('') : '<li class="text-slate-500 text-center py-3">ยังไม่มีออเดอร์</li>'}
         </ul>
       </div>`;
@@ -390,7 +390,7 @@ async function loadOrders() {
       <li class="rounded-xl border border-line bg-panel p-3 flex justify-between gap-3 text-sm">
         <div class="min-w-0">
           <p class="font-medium truncate">#${esc(o.id.slice(-6).toUpperCase())} · ${esc(GAME_TH[o.game] || o.game)} · ${esc(o.packageName)}</p>
-          <p class="text-[11px] text-slate-500 truncate">${esc(when(o.createdAt))} · ${o.userId ? esc(o.userName) + ' (' + esc(o.userId) + ')' : 'ไม่ได้ล็อกอิน'} · ${o.payMethod === 'balance' ? 'เงินในบัญชี' + (o.paid ? ' (หักแล้ว)' : '') : 'ซองอั่งเปา'}${o.handledBy ? ' · โดย ' + esc(o.handledBy) : ''}</p>
+          <p class="text-[11px] text-slate-500 truncate">${esc(when(o.createdAt))} · ${o.userId ? esc(o.userName) + ' (' + esc(o.userId) + ')' : 'ไม่ได้ล็อกอิน'} · ${o.payMethod === 'balance' ? 'เงินในบัญชี' + (o.paid ? ' (หักแล้ว)' : '') : o.payMethod === 'bank' ? 'โอนธนาคาร' : 'ซองอั่งเปา'}${o.handledBy ? ' · โดย ' + esc(o.handledBy) : ''}</p>
         </div>
         <div class="text-right shrink-0"><p class="font-bold">${fmt(o.price)} ฿${o.basePrice && o.basePrice !== o.price ? ` <s class="text-[11px] font-normal text-slate-500">${fmt(o.basePrice)}</s>` : ''}</p><span class="badge ${STATUS_CLR[o.status] || ''}">${esc(STATUS_TH[o.status] || o.status)}</span></div>
       </li>`).join('') : '<li class="text-center text-slate-500 py-8">ไม่พบออเดอร์</li>';
