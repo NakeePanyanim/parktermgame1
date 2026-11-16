@@ -26,6 +26,16 @@ const DISCOUNT_PCT = Math.min(90, Math.max(0, Number(process.env.RESELLER_DISCOU
 const AUTH_ON = !!(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET && SESSION_SECRET && BASE_URL);
 const REDIRECT_URI = BASE_URL + '/auth/discord/callback';
 const IS_HTTPS = BASE_URL.startsWith('https://');
+// ---- โอนผ่านธนาคาร: บัญชีของร้านที่ให้ลูกค้าโอนเข้า (ไม่ตั้งค่า 3 ตัวนี้ = ปิดตัวเลือกโอนธนาคาร) ----
+const BANK_NAME = (process.env.BANK_NAME || '').trim();
+const BANK_ACCOUNT_NO = (process.env.BANK_ACCOUNT_NO || '').trim();
+const BANK_ACCOUNT_NAME = (process.env.BANK_ACCOUNT_NAME || '').trim();
+const BANK_ON = !!(BANK_NAME && BANK_ACCOUNT_NO && BANK_ACCOUNT_NAME);
+// รายชื่อธนาคารที่ให้ลูกค้าเลือก (ธนาคารที่ลูกค้าใช้โอนมา)
+const BANKS = ['กสิกรไทย (KBank)', 'ไทยพาณิชย์ (SCB)', 'กรุงเทพ (BBL)', 'กรุงไทย (KTB)', 'กรุงศรีอยุธยา (BAY)', 'ทหารไทยธนชาต (ttb)',
+    'ออมสิน (GSB)', 'ธ.ก.ส. (BAAC)', 'ซีไอเอ็มบีไทย (CIMB)', 'ยูโอบี (UOB)', 'เกียรตินาคินภัทร (KKP)', 'ทิสโก้ (TISCO)',
+    'แลนด์ แอนด์ เฮ้าส์ (LH Bank)', 'ไอซีบีซี (ไทย)', 'อาคารสงเคราะห์ (GHB)', 'อิสลามแห่งประเทศไทย (iBank)', 'อื่นๆ'];
+const BANK_ACC_RE = /^\d{10,15}$/;
 
 if (!BOT_TOKEN || !CHANNEL_ID) {
     console.error('ไม่พบ DISCORD_BOT_TOKEN หรือ DISCORD_CHANNEL_ID ในไฟล์ .env');
@@ -181,6 +191,7 @@ const STATUS = {
 };
 
 function payText(o) {
+    if (o.payMethod === 'bank') return '🏦 **โอนผ่านธนาคาร** (ตรวจยอดเข้าบัญชีร้านก่อนกด "รับเงิน")';
     if (o.payMethod !== 'balance') return '🎟️ ลิงก์ซองอั่งเปา TrueMoney';
     if (o.refunded) return '👛 เงินในบัญชี (คืนเงินแล้ว ↩️)';
     if (o.paid) return '👛 เงินในบัญชี (หักเงินแล้ว ✅)';
@@ -200,6 +211,9 @@ function codeText(o) {
 
 function buildMessage(o) {
     const s = STATUS[o.status];
+    const statusTxt = o.payMethod === 'bank'
+        ? ({ checking: '🕑 รอตรวจสอบยอดโอน', done: '✅ รับเงินแล้ว เติม Point เข้าบัญชีลูกค้าแล้ว', insufficient: '⚠️ เงินไม่พอ / ไม่พบยอดโอน' }[o.status] || s.text)
+        : s.text;
     const gameKey = GAMES[o.game] ? o.game : 'opm'; // ออเดอร์เก่าที่ไม่มี game = One Punch Man
     const accountFields = gameKey === 'points'
         ? [{ name: '👤 บัญชีเว็บ (Discord)', value: `${code(o.userName)} ${code(o.userId)}`, inline: false }]
@@ -217,7 +231,7 @@ function buildMessage(o) {
         .setTitle(`🧾 ออเดอร์ #${o.id.slice(-6).toUpperCase()}`)
         .setColor(s.color)
         .addFields(
-            { name: '📌 สถานะ', value: s.text, inline: false },
+            { name: '📌 สถานะ', value: statusTxt, inline: false },
             { name: '🕹️ เกม', value: `**${GAMES[gameKey].name}**`, inline: false },
             ...accountFields,
             ...(o.userId && gameKey !== 'points' ? [{ name: '🔗 บัญชีเว็บ', value: `<@${o.userId}>`, inline: true }] : []),
@@ -225,6 +239,10 @@ function buildMessage(o) {
             { name: '📦 แพ็กเกจ', value: o.packageName, inline: true },
             { name: '💰 ยอดที่ต้องได้รับ', value: `**${o.price.toLocaleString('en-US')} บาท**` + (o.basePrice && o.basePrice !== (o.priceBeforeCode || o.price) ? `\n🏷️ ส่วนลด Reseller ${o.discountPct}% (ราคาปกติ ${o.basePrice.toLocaleString('en-US')})` : ''), inline: true },
             { name: '💳 ชำระเงินด้วย', value: payText(o), inline: false },
+            ...(o.payMethod === 'bank' ? [
+                { name: '🏦 ธนาคารของลูกค้า', value: code(o.bankName), inline: true },
+                { name: '🔢 เลขบัญชีลูกค้า', value: code(o.bankAccount), inline: true }
+            ] : []),
             ...(o.code ? [{ name: '🎟️ โค้ดส่วนลด', value: codeText(o), inline: false }] : [])
         )
         .setFooter({ text: o.handledBy ? `ล่าสุดโดย ${o.handledBy}` : 'รอแอดมินดำเนินการ' })
@@ -239,14 +257,25 @@ function buildMessage(o) {
         embed.addFields({ name: '🎟️ ลิงก์ซอง', value: voucherUrl(o.voucherCode), inline: false });
     }
 
-    const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`order:${o.id}:received`).setLabel('รับเงิน')
-            .setStyle(ButtonStyle.Primary).setDisabled(o.status !== 'checking'),
-        new ButtonBuilder().setCustomId(`order:${o.id}:done`).setLabel('เสร็จสิ้น')
-            .setStyle(ButtonStyle.Success).setDisabled(isFinal(o.status)),
-        new ButtonBuilder().setCustomId(`order:${o.id}:insufficient`).setLabel('ยอดไม่ครบ')
-            .setStyle(ButtonStyle.Danger).setDisabled(isFinal(o.status))
-    );
+    const row = new ActionRowBuilder();
+    if (o.payMethod === 'bank') {
+        // โอนธนาคาร: มีแค่ 2 ปุ่ม กด "รับเงิน" = เติม Point เข้าบัญชีลูกค้าทันทีตามยอดที่ลูกค้ากรอก (เติมได้ครั้งเดียวต่อออเดอร์)
+        row.addComponents(
+            new ButtonBuilder().setCustomId(`order:${o.id}:received`).setLabel('รับเงิน')
+                .setStyle(ButtonStyle.Success).setDisabled(isFinal(o.status)),
+            new ButtonBuilder().setCustomId(`order:${o.id}:insufficient`).setLabel('เงินไม่พอ')
+                .setStyle(ButtonStyle.Danger).setDisabled(isFinal(o.status))
+        );
+    } else {
+        row.addComponents(
+            new ButtonBuilder().setCustomId(`order:${o.id}:received`).setLabel('รับเงิน')
+                .setStyle(ButtonStyle.Primary).setDisabled(o.status !== 'checking'),
+            new ButtonBuilder().setCustomId(`order:${o.id}:done`).setLabel('เสร็จสิ้น')
+                .setStyle(ButtonStyle.Success).setDisabled(isFinal(o.status)),
+            new ButtonBuilder().setCustomId(`order:${o.id}:insufficient`).setLabel('ยอดไม่ครบ')
+                .setStyle(ButtonStyle.Danger).setDisabled(isFinal(o.status))
+        );
+    }
     if (o.status === 'checking' && o.voucherCode) {
         row.addComponents(
             new ButtonBuilder().setLabel('เปิดซอง').setStyle(ButtonStyle.Link).setURL(voucherUrl(o.voucherCode))
@@ -404,10 +433,22 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
     const facebook = clean(req.body.facebook, 200);
     const voucherLink = clean(req.body.voucherLink, 300);
     // วิธีชำระเงิน: voucher = ลิงก์ซองอั่งเปา | balance = เงินในบัญชีเว็บ (ไม่หักตอนสั่ง จะหักตอนแอดมินกด "รับเงิน")
-    const payMethod = clean(req.body.payMethod, 10) === 'balance' ? 'balance' : 'voucher';
+    const payRaw = clean(req.body.payMethod, 10);
+    const payMethod = payRaw === 'balance' ? 'balance' : payRaw === 'bank' ? 'bank' : 'voucher';
     if (payMethod === 'balance') {
         if (!user) return res.status(401).json({ success: false, needLogin: true, message: 'กรุณาเข้าสู่ระบบก่อนชำระด้วยเงินในบัญชี' });
-        if (gameKey === 'points') return res.status(400).json({ success: false, message: 'การเติมเงินเข้าบัญชีต้องชำระด้วยซองอั่งเปาเท่านั้น' });
+        if (gameKey === 'points') return res.status(400).json({ success: false, message: 'การเติมเงินเข้าบัญชีต้องชำระด้วยซองอั่งเปาหรือโอนธนาคารเท่านั้น' });
+    }
+    // โอนธนาคาร: ใช้เติม Point เท่านั้น ลูกค้าบอกธนาคารและเลขบัญชีที่ใช้โอน แอดมินตรวจยอดเข้าบัญชีร้านเอง
+    let bankName = '', bankAccount = '';
+    if (payMethod === 'bank') {
+        if (!BANK_ON) return res.status(400).json({ success: false, message: 'ระบบโอนผ่านธนาคารยังไม่เปิดใช้งาน' });
+        if (!user) return res.status(401).json({ success: false, needLogin: true, message: 'กรุณาเข้าสู่ระบบก่อนเติมเงินผ่านธนาคาร' });
+        if (gameKey !== 'points') return res.status(400).json({ success: false, message: 'การโอนผ่านธนาคารใช้เติม Point เข้าบัญชีเท่านั้น' });
+        bankName = clean(req.body.bankName, 60);
+        bankAccount = clean(req.body.bankAccount, 30).replace(/[\s-]/g, '');
+        if (!BANKS.includes(bankName)) return res.status(400).json({ success: false, message: 'กรุณาเลือกธนาคารของคุณ' });
+        if (!BANK_ACC_RE.test(bankAccount)) return res.status(400).json({ success: false, message: 'เลขบัญชีไม่ถูกต้อง (ตัวเลข 10-15 หลัก)' });
     }
 
     // ราคามาจากฝั่งเซิร์ฟเวอร์เท่านั้น ไม่เชื่อค่า expectedPrice ที่ลูกค้าส่งมา
@@ -467,6 +508,12 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
         }
         // ส่งลิงก์ซองเดิมซ้ำได้ ไม่ปฏิเสธ แต่จะมีคำเตือนในข้อความ Discord ให้แอดมินเห็น
         dupOf = Object.values(orders).find(o => o.voucherCode === voucherCode) || null;
+    } else if (payMethod === 'bank') {
+        // กันสแปม: รายการโอนที่แอดมินยังไม่ตรวจ มีได้ไม่เกิน 3 รายการต่อบัญชี
+        const pendingBank = Object.values(orders).filter(o => o.userId === user.id && o.payMethod === 'bank' && !isFinal(o.status)).length;
+        if (pendingBank >= 3) {
+            return res.status(400).json({ success: false, message: 'คุณมีรายการโอนที่รอแอดมินตรวจสอบอยู่ 3 รายการแล้ว กรุณารอให้แอดมินตรวจสอบก่อน' });
+        }
     } else {
         // ยังไม่หักเงิน แต่กันสั่งเกินยอด: ยอดที่ใช้ได้ = ยอดคงเหลือ - ออเดอร์เงินในบัญชีอื่นที่ยังรอแอดมิน
         const pending = Object.values(orders)
@@ -494,7 +541,7 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
             return res.status(503).json({ success: false, message: 'ระบบโค้ดส่วนลดขัดข้อง กรุณาลองใหม่อีกครั้ง' });
         }
     }
-    const order = { id, game: gameKey, ...(user ? { userId: user.id, userName: user.name } : {}), ...data, facebook, packageName, price, ...(basePrice !== priceBeforeCode ? { basePrice, discountPct: DISCOUNT_PCT } : {}), payMethod, ...(voucherCode ? { voucherCode } : {}), ...codeFields, status: 'checking', createdAt: now, updatedAt: now };
+    const order = { id, game: gameKey, ...(user ? { userId: user.id, userName: user.name } : {}), ...data, facebook, packageName, price, ...(basePrice !== priceBeforeCode ? { basePrice, discountPct: DISCOUNT_PCT } : {}), payMethod, ...(voucherCode ? { voucherCode } : {}), ...(payMethod === 'bank' ? { bankName, bankAccount } : {}), ...codeFields, status: 'checking', createdAt: now, updatedAt: now };
     if (dupOf) order.dupOf = dupOf.id;
 
     // เก็บก่อนส่ง Discord ถ้าส่งไม่ผ่านค่อยลบทิ้ง
@@ -510,14 +557,14 @@ app.post('/api/topup', topupLimiter, async (req, res) => {
         db.deleteOrder(id).catch(() => {});
         if (codeUse) db.releaseCodeUse(id).catch(() => {});
         console.error('ส่งออเดอร์เข้า Discord ไม่สำเร็จ:', e.message);
-        return res.status(502).json({ success: false, message: payMethod === 'balance' ? 'ระบบแจ้งเตือนแอดมินขัดข้อง กรุณาลองใหม่อีกครั้ง (ยังไม่มีการหักเงินในบัญชี)' : 'ระบบแจ้งเตือนแอดมินขัดข้อง กรุณาลองใหม่อีกครั้ง (ซองของคุณยังไม่ถูกใช้)' });
+        return res.status(502).json({ success: false, message: payMethod === 'bank' ? 'ระบบแจ้งเตือนแอดมินขัดข้อง กรุณาลองใหม่อีกครั้ง (หากโอนเงินไปแล้ว ให้เก็บสลิปไว้และติดต่อแอดมินทาง Facebook)' : payMethod === 'balance' ? 'ระบบแจ้งเตือนแอดมินขัดข้อง กรุณาลองใหม่อีกครั้ง (ยังไม่มีการหักเงินในบัญชี)' : 'ระบบแจ้งเตือนแอดมินขัดข้อง กรุณาลองใหม่อีกครั้ง (ซองของคุณยังไม่ถูกใช้)' });
     }
 
     return res.json({
         success: true,
         orderId: id,
         price,
-        message: payMethod === 'balance' ? 'ส่งออเดอร์แล้ว รอแอดมินตรวจสอบ' : 'ส่งออเดอร์แล้ว กำลังตรวจสอบลิงก์ซอง'
+        message: payMethod === 'bank' ? 'ส่งรายการแล้ว รอแอดมินตรวจสอบยอดโอน' : payMethod === 'balance' ? 'ส่งออเดอร์แล้ว รอแอดมินตรวจสอบ' : 'ส่งออเดอร์แล้ว กำลังตรวจสอบลิงก์ซอง'
     });
 });
 
@@ -637,6 +684,15 @@ app.get('/api/me/history', statusLimiter, async (req, res) => {
         console.error('/api/me/history ผิดพลาด:', e.message);
         return res.status(500).json({ success: false, message: 'โหลดประวัติไม่สำเร็จ' });
     }
+});
+
+// ข้อมูลบัญชีร้านสำหรับโอนเงิน (ให้เฉพาะคนที่ล็อกอินแล้ว)
+app.get('/api/bank', async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    let user = null;
+    try { user = await getSessionUser(req); } catch (e) { /* ถือว่าไม่ได้ล็อกอิน */ }
+    if (!BANK_ON || !user) return res.json({ success: true, enabled: false });
+    return res.json({ success: true, enabled: true, banks: BANKS, bankName: BANK_NAME, accountNo: BANK_ACCOUNT_NO, accountName: BANK_ACCOUNT_NAME });
 });
 
 // รายการแพ็กเกจที่เปิดขาย (ราคาตามยศของคนที่ล็อกอินอยู่)
@@ -887,7 +943,7 @@ app.get('/api/order/:id', statusLimiter, (req, res) => {
         if (seeded) console.log(`ใส่แพ็กเกจตั้งต้นลงฐานข้อมูล ${seeded} รายการ`);
         await loadPackages();
         await importLegacyOrders();
-        console.log(`โหลดออเดอร์จากฐานข้อมูล ${Object.keys(orders).length} รายการ | ล็อกอิน Discord: ${AUTH_ON ? 'เปิด' : 'ปิด (ยังไม่ตั้งค่า)'}`);
+        console.log(`โหลดออเดอร์จากฐานข้อมูล ${Object.keys(orders).length} รายการ | ล็อกอิน Discord: ${AUTH_ON ? 'เปิด' : 'ปิด (ยังไม่ตั้งค่า)'} | โอนธนาคาร: ${BANK_ON ? 'เปิด' : 'ปิด (ยังไม่ตั้งค่า BANK_*)'}`);
     } catch (e) {
         const tok = (process.env.TURSO_AUTH_TOKEN || '').trim();
         const msg = tok ? String(e.message).split(tok).join('***') : e.message; // ไม่พิมพ์ Token ลง Logs
