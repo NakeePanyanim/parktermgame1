@@ -82,6 +82,7 @@ tailwind.config = {
     <nav class="hidden md:flex items-center gap-7 text-sm text-slate-400">
       <a href="#catalog" id="navGames" class="hover:text-white transition">เติมเกม</a>
       <button type="button" id="navTopup" class="hover:text-white transition">เติมเงิน</button>
+      <button type="button" id="navPartner" class="hover:text-white transition">สมัคร Partner</button>
       <a href="#how" class="hover:text-white transition">วิธีเติม</a>
       <a href="#faq" class="hover:text-white transition">คำถามที่พบบ่อย</a>
       <a href="#contact" class="hover:text-white transition">ติดต่อเรา</a>
@@ -452,6 +453,16 @@ tailwind.config = {
   </section>
 
   <!-- Contact -->
+  <section id="partner" class="mt-20 scroll-mt-24 max-w-3xl mx-auto">
+    <div class="rounded-3xl border border-line bg-panel/80 p-6 sm:p-8 flex flex-col sm:flex-row items-center gap-5 text-center sm:text-left">
+      <div class="grow">
+        <h2 class="text-xl sm:text-2xl font-bold">อยากเป็นตัวแทนขาย? สมัคร <span class="grad-text">Partner / Reseller</span></h2>
+        <p class="text-sm text-slate-400 mt-2">มีร้านเพจหรือเว็บของตัวเอง สมัครเป็น Reseller รับราคาพิเศษ ลด <b class="js-rpct text-amber-300">10</b>% ทุกแพ็กเกจเกม</p>
+      </div>
+      <button type="button" id="partnerOpen" class="grad-btn shrink-0 px-6 py-3 rounded-xl font-semibold text-white">สมัครเลย</button>
+    </div>
+  </section>
+
   <section id="contact" class="mt-20 scroll-mt-24 max-w-3xl mx-auto">
     <div class="relative overflow-hidden rounded-3xl border border-amber-400/20 bg-gradient-to-br from-amber-500/10 via-panel to-red-500/10 p-8 text-center">
       <h2 class="text-xl sm:text-2xl font-bold">มีปัญหาในการเติม? ติดต่อแอดมินได้เลย</h2>
@@ -514,6 +525,15 @@ tailwind.config = {
       <span class="text-3xl font-extrabold grad-text"><span id="accPoints">0</span> บาท</span>
     </div>
     <button type="button" id="accTopup" class="grad-btn w-full mt-3 py-2.5 rounded-xl font-semibold text-white text-sm">เติม Point</button>
+    <div id="lvCard" class="hidden mt-3 rounded-2xl bg-ink border border-line p-4">
+      <div class="flex items-end justify-between"><span class="text-sm text-slate-400">เลเวล</span><span class="text-2xl font-extrabold text-sky-300">Lv.<span id="lvNum">1</span></span></div>
+      <div class="mt-2 h-2 rounded-full bg-white/5 overflow-hidden"><div id="lvBar" class="h-full grad-btn" style="width:0%"></div></div>
+      <p id="lvText" class="mt-1.5 text-[11px] text-slate-500"></p>
+      <button type="button" id="lvClaim" class="hidden grad-btn w-full mt-3 py-2.5 rounded-xl font-semibold text-white text-sm"></button>
+      <div id="lvNew" class="hidden mt-3 rounded-xl border p-3 text-center text-sm"></div>
+      <p id="lvNext" class="text-[11px] text-slate-500 mt-2"></p>
+      <ul id="lvRewards" class="mt-3 space-y-1.5 text-sm"></ul>
+    </div>
     <div class="mt-5 flex gap-1.5 text-xs" id="accTabs">
       <button type="button" data-tab="gameOrders" class="acc-tab flex-1 py-2 rounded-lg border border-line">ประวัติเติมเกม</button>
       <button type="button" data-tab="topupOrders" class="acc-tab flex-1 py-2 rounded-lg border border-line">ประวัติเติมเงิน</button>
@@ -525,6 +545,20 @@ tailwind.config = {
       <button type="button" id="accLogout" class="flex-1 py-2.5 rounded-xl border border-line text-sm text-slate-300 hover:border-rose-400/50 transition">ออกจากระบบ</button>
       <button type="button" id="accClose" class="flex-1 py-2.5 rounded-xl border border-line text-sm text-slate-300 hover:border-amber-400/50 transition">ปิด</button>
     </div>
+  </div>
+</div>
+
+<!-- Partner / Reseller modal -->
+<div id="partnerModal" class="hidden fixed inset-0 z-50 grid place-items-center p-4 bg-black/70 backdrop-blur-sm">
+  <div class="pop w-full max-w-md bg-panel border border-line rounded-3xl p-6 max-h-[92vh] overflow-y-auto">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h3 class="text-lg font-bold">สมัคร Partner / Reseller</h3>
+        <p class="text-xs text-slate-500 mt-0.5">ผ่านแล้วได้ยศ Reseller ลดราคาแพ็กเกจเกม <b class="js-rpct text-amber-300">10</b>%</p>
+      </div>
+      <button type="button" id="ptClose" class="shrink-0 w-8 h-8 rounded-full border border-line text-slate-400 hover:text-white hover:border-amber-400/50 transition" aria-label="ปิด">✕</button>
+    </div>
+    <div id="ptBody" class="mt-4"></div>
   </div>
 </div>
 
@@ -1078,6 +1112,7 @@ async function loadPackages() {
     if (d.success) {
       Object.keys(d.packages).forEach(k => { if (GAMES[k]) GAMES[k].packages = d.packages[k]; });
       pkgLoaded = true;
+      if (d.resellerPct !== undefined) setResellerPct(d.resellerPct);
     }
   } catch (e) { pkgLoaded = true; /* เน็ตมีปัญหา แสดงว่าไม่มีแพ็กเกจแทนการค้าง */ }
   const g = GAMES[game];
@@ -1114,6 +1149,7 @@ function renderAuth() {
     box.innerHTML = `<button type="button" id="authBtn" class="flex items-center gap-2 rounded-full bg-panel border border-line hover:border-amber-400/50 pl-1 pr-3 py-1 transition">
       ${avatarHTML(me, 'w-7 h-7')}
       <span class="text-xs font-medium max-w-[84px] truncate hidden sm:block">${esc(me.name)}</span>
+      ${me.level > 0 ? `<span class="text-[10px] font-bold text-sky-300 border border-sky-400/30 rounded-full px-1.5 py-0.5">Lv.${fmt(me.level)}</span>` : ''}
       <span class="text-xs font-bold text-amber-300">${fmt(me.points)} บาท</span></button>`;
     $('authBtn').addEventListener('click', openAcc);
   } else if (authEnabled) {
@@ -1131,6 +1167,7 @@ function renderAuth() {
 let accTab = 'gameOrders', accData = null;
 function fillAcc() {
   if (!me) return;
+  fillLevel();
   $('accAvatar').innerHTML = avatarHTML(me, 'w-12 h-12');
   $('accName').textContent = me.name;
   $('accRole').textContent = ROLE_TH[me.role] || 'Member';
@@ -1151,12 +1188,17 @@ function fillAcc() {
 }
 async function openAcc() {
   if (!me) return;
-  accData = null; fillAcc();
+  accData = null; lvData = null; $('lvNew').classList.add('hidden'); fillAcc();
   $('accModal').classList.remove('hidden');
   try {
     const d = await (await fetch('/api/me/history', { cache: 'no-store' })).json();
     if (d.success) { accData = d; me.points = d.points; renderAuth(); }
   } catch (e) { accData = { gameOrders: [], topupOrders: [], ledger: [] }; }
+  try {
+    const d2 = await (await fetch('/api/level', { cache: 'no-store' })).json();
+    lvData = d2.success ? d2 : null;
+    if (lvData && lvData.info) { me.level = lvData.info.level; me.exp = lvData.info.exp; renderAuth(); }
+  } catch (e) { lvData = null; }
   fillAcc();
 }
 function closeAcc() { $('accModal').classList.add('hidden'); }
@@ -1169,6 +1211,134 @@ $('accLogout').addEventListener('click', async () => {
   me = null; bankInfo = null; lastBankKey = null; closeAcc(); renderAuth();
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAcc(); });
+
+/* ===== เลเวล / รางวัลเลเวล ===== */
+let lvData = null; // { config, info, rewards } จาก /api/level
+function fillLevel() {
+  const card = $('lvCard');
+  if (!lvData || !lvData.info) { card.classList.add('hidden'); return; }
+  const i = lvData.info, c = lvData.config;
+  card.classList.remove('hidden');
+  $('lvNum').textContent = fmt(i.level);
+  $('lvBar').style.width = (i.need ? Math.min(100, Math.round(i.into / i.need * 100)) : 100) + '%';
+  $('lvText').textContent = i.need ? `EXP ${fmt(i.into)} / ${fmt(i.need)} (รวม ${fmt(i.exp)} EXP)` : `เลเวลสูงสุดแล้ว · รวม ${fmt(i.exp)} EXP`;
+  $('lvNext').textContent = (i.nextRewardLevel ? `รางวัลถัดไปที่ Lv.${fmt(i.nextRewardLevel)} (อีก ${fmt(i.nextRewardExp)} EXP) · ` : '')
+    + `ทุก ${fmt(c.rewardEvery)} เลเวล รับโค้ดลด ${fmt(c.rewardValue)} บาท · เติมเงินหรือซื้อแพ็กได้ ${fmt(c.expPerBaht)} EXP ต่อ 1 บาท`;
+  const btn = $('lvClaim');
+  btn.classList.toggle('hidden', i.claimable < 1);
+  btn.textContent = `🎁 รับรางวัลเลเวล (${fmt(i.claimable)})`;
+  btn.disabled = false;
+  $('lvRewards').innerHTML = (lvData.rewards || []).map(r => `<li class="rounded-xl bg-panel border border-line px-3 py-2 flex items-center justify-between gap-2">
+      <span class="min-w-0"><span class="block text-[11px] text-slate-500">รางวัลที่ ${fmt(r.seq)} · ลด ${fmt(r.value)} บาท · ${esc(when(r.createdAt))}</span>
+      <span class="block font-mono font-bold tracking-widest ${r.used ? 'text-slate-600 line-through' : 'text-emerald-300'}">${esc(r.code)}</span></span>
+      ${r.used ? '<span class="text-[11px] text-slate-500 shrink-0">ใช้แล้ว</span>' : `<button type="button" data-copy="${esc(r.code)}" class="shrink-0 text-[11px] rounded-lg border border-line px-2.5 py-1 hover:border-amber-400/50 transition">คัดลอก</button>`}</li>`).join('');
+}
+function showLvNew(ok, html) {
+  const el = $('lvNew');
+  el.className = 'mt-3 rounded-xl border p-3 text-center text-sm ' + (ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-rose-500/30 bg-rose-500/10 text-rose-400');
+  el.innerHTML = html;
+}
+$('lvClaim').addEventListener('click', async () => {
+  const btn = $('lvClaim'); btn.disabled = true;
+  try {
+    const d = await (await fetch('/api/level/claim', { method: 'POST', cache: 'no-store' })).json();
+    if (d.success) {
+      lvData = { config: lvData.config, info: d.info, rewards: d.rewards };
+      me.level = d.info.level; renderAuth();
+      showLvNew(true, `<p class="text-xs">ได้โค้ดส่วนลด ${fmt(d.value)} บาท</p><p class="font-mono text-2xl font-extrabold tracking-[.3em] my-1">${esc(d.code)}</p>
+        <button type="button" data-copy="${esc(d.code)}" class="text-[11px] rounded-lg border border-emerald-500/40 px-3 py-1 hover:bg-emerald-500/10 transition">คัดลอกโค้ด</button>
+        <p class="text-[11px] text-slate-400 mt-2">ใช้ได้ 1 ครั้ง กรอกในช่องโค้ดส่วนลดตอนซื้อแพ็กเกจเกม</p>`);
+    } else {
+      showLvNew(false, esc(d.message || 'รับรางวัลไม่สำเร็จ'));
+    }
+  } catch (e) { showLvNew(false, 'รับรางวัลไม่สำเร็จ กรุณาลองใหม่'); }
+  fillLevel();
+});
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-copy]');
+  if (!b) return;
+  try { await navigator.clipboard.writeText(b.dataset.copy); const t = b.textContent; b.textContent = 'คัดลอกแล้ว ✓'; setTimeout(() => { b.textContent = t; }, 1500); } catch (err) { /* คัดลอกไม่ได้ ให้ลูกค้าพิมพ์เอง */ }
+});
+
+/* ===== สมัคร Partner / Reseller ===== */
+let resellerPct = 10, ptStatus = null;
+function setResellerPct(n) { resellerPct = Number(n) || 0; document.querySelectorAll('.js-rpct').forEach(el => { el.textContent = resellerPct; }); }
+async function loadPartnerStatus() {
+  try { ptStatus = await (await fetch('/api/partner/status', { cache: 'no-store' })).json(); } catch (e) { ptStatus = null; }
+  if (ptStatus && ptStatus.success) {
+    setResellerPct(ptStatus.resellerPct);
+    // แอดมินกดรับแล้ว: โหลดข้อมูลบัญชีใหม่ ราคาจะเปลี่ยนเป็นราคา Reseller ทันที
+    if (ptStatus.application && ptStatus.application.status === 'accepted' && me && me.role === 'member') await loadMe();
+  }
+}
+function ptBox(cls, html) { return `<div class="rounded-xl border p-3.5 text-sm ${cls}">${html}</div>`; }
+function renderPartner() {
+  const box = $('ptBody');
+  if (!me) {
+    box.innerHTML = authEnabled
+      ? `<p class="text-sm text-slate-400 text-center">กรุณาเข้าสู่ระบบด้วย Discord ก่อนสมัคร</p><a href="/auth/discord" class="mt-4 flex items-center justify-center rounded-xl bg-[#5865F2] hover:brightness-110 py-3 text-sm font-semibold text-white transition">เข้าสู่ระบบ Discord</a>`
+      : '<p class="text-sm text-slate-400 text-center">ระบบล็อกอินยังไม่เปิดใช้งาน</p>';
+    return;
+  }
+  if (me.role === 'reseller' || me.role === 'admin') {
+    box.innerHTML = ptBox('border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-center', `🎉 คุณเป็น <b>${me.role === 'admin' ? 'Admin' : 'Reseller'}</b> แล้ว${me.role === 'reseller' ? ` ได้ส่วนลดแพ็กเกจเกม ${resellerPct}% อัตโนมัติ` : ''}`);
+    return;
+  }
+  const a = ptStatus && ptStatus.application;
+  if (a && a.status === 'pending') {
+    box.innerHTML = ptBox('border-amber-400/30 bg-amber-400/10 text-amber-300 text-center', `🕑 ส่งใบสมัครร้าน <b>${esc(a.shopName)}</b> แล้ว<br><span class="text-xs text-slate-400">รอแอดมินพิจารณา หน้านี้จะอัปเดตเมื่อเปิดใหม่ ถ้าผ่านจะได้ยศ Reseller ทันที</span>`);
+    return;
+  }
+  const banner = (a && a.status === 'rejected')
+    ? ptBox('border-rose-500/30 bg-rose-500/10 text-rose-400 mb-4', `ใบสมัครล่าสุด (${esc(a.shopName)}) ไม่ผ่านการพิจารณา<br><b>เหตุผล: ${esc(a.reason || 'ยอดรายได้ต่อเดือนไม่เพียงพอ')}</b><br><span class="text-xs text-slate-400">สมัครใหม่ได้เมื่อยอดขายถึงเกณฑ์</span>`) : '';
+  box.innerHTML = banner + `<form id="ptForm" class="space-y-3.5" novalidate>
+    <label class="block text-xs font-medium text-slate-300">1. ร้านชื่ออะไร
+      <input id="ptShop" class="field mt-1.5" maxlength="60" autocomplete="off" placeholder="ชื่อร้านของคุณ"></label>
+    <div><p class="text-xs font-medium text-slate-300">2. ร้านของคุณใช้แบบไหน</p>
+      <div class="grid grid-cols-2 gap-2 mt-1.5">
+        <label class="pay-opt cursor-pointer"><input type="radio" name="ptType" value="page" class="sr-only"><div class="pay-card text-center text-sm font-medium">📄 เพจ</div></label>
+        <label class="pay-opt cursor-pointer"><input type="radio" name="ptType" value="website" class="sr-only"><div class="pay-card text-center text-sm font-medium">🌐 เว็บไซต์</div></label>
+      </div></div>
+    <label class="block text-xs font-medium text-slate-300">3. ชื่อเพจ/เว็บ หรือลิงก์
+      <input id="ptLink" class="field mt-1.5" maxlength="200" autocomplete="off" placeholder="เช่น https://facebook.com/ชื่อเพจ"></label>
+    <label class="block text-xs font-medium text-slate-300">4. ยอดขายต่อเดือน (บาท)
+      <input id="ptSales" class="field mt-1.5" inputmode="numeric" maxlength="12" autocomplete="off" placeholder="เช่น 20000"></label>
+    <label class="block text-xs font-medium text-slate-300">5. ช่องทางติดต่อ
+      <input id="ptContact" class="field mt-1.5" maxlength="100" autocomplete="off" placeholder="LINE / Facebook / เบอร์โทร"></label>
+    <div id="ptMsg" class="hidden"></div>
+    <button type="submit" id="ptSubmit" class="grad-btn w-full py-3 rounded-xl font-semibold text-white">ส่งใบสมัคร</button>
+  </form>`;
+  $('ptForm').addEventListener('submit', submitPartner);
+}
+async function submitPartner(e) {
+  e.preventDefault();
+  const msg = (t) => { $('ptMsg').className = 'rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 text-sm text-center p-3'; $('ptMsg').textContent = t; };
+  const type = (document.querySelector('input[name="ptType"]:checked') || {}).value || '';
+  const body = { shopName: $('ptShop').value.trim(), shopType: type, shopLink: $('ptLink').value.trim(), monthlySales: Number($('ptSales').value.replace(/[,\s]/g, '')), contact: $('ptContact').value.trim() };
+  if (!body.shopName || !body.shopLink || !body.contact || $('ptSales').value.trim() === '') return msg('กรุณากรอกข้อมูลให้ครบทุกช่อง');
+  if (!type) return msg('กรุณาเลือกว่าร้านของคุณเป็นเพจหรือเว็บไซต์');
+  if (!Number.isInteger(body.monthlySales) || body.monthlySales < 0) return msg('ยอดขายต่อเดือนต้องเป็นตัวเลขจำนวนเต็ม');
+  const btn = $('ptSubmit'); btn.disabled = true; btn.textContent = 'กำลังส่ง...';
+  try {
+    const d = await (await fetch('/api/partner/apply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+    if (d.success) { await loadPartnerStatus(); renderPartner(); return; }
+    if (d.needLogin) { await loadMe(); renderPartner(); return; }
+    msg(d.message || 'ส่งใบสมัครไม่สำเร็จ');
+  } catch (err) { msg('ส่งใบสมัครไม่สำเร็จ กรุณาลองใหม่'); }
+  btn.disabled = false; btn.textContent = 'ส่งใบสมัคร';
+}
+async function openPartner() {
+  $('partnerModal').classList.remove('hidden');
+  renderPartner();
+  await loadPartnerStatus();
+  if (!$('partnerModal').classList.contains('hidden') && !($('ptForm') && document.activeElement && $('ptForm').contains(document.activeElement))) renderPartner();
+}
+function closePartner() { $('partnerModal').classList.add('hidden'); }
+$('partnerOpen').addEventListener('click', openPartner);
+$('navPartner').addEventListener('click', openPartner);
+$('ptClose').addEventListener('click', closePartner);
+$('partnerModal').addEventListener('click', e => { if (e.target === $('partnerModal')) closePartner(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closePartner(); });
 
 setGame('opm');
 buildCatalog();
