@@ -856,6 +856,69 @@ app.post('/api/discount/check', codeLimiter, async (req, res) => {
     }
 });
 
+// ---------- อันดับ (Leaderboard) ----------
+// board: spend = ยอดเติมสะสม | level = เลเวล/EXP | period: day, week, month (ตัดรอบเที่ยงคืนเวลาไทย สัปดาห์เริ่มวันจันทร์ เหมือนหน้าสถิติแอดมิน) หรือ all
+// ยอดเติม = ออเดอร์เติม Point ที่แอดมินรับเงินแล้ว + ออเดอร์แพ็กเกจที่จ่ายด้วยซองและแอดมินรับแล้ว (ไม่นับออเดอร์ที่จ่ายด้วยเงินในบัญชี กันนับซ้ำ) ไม่รวมแอดมิน
+const LB_TOP = 20;
+function periodStart(period) {
+    const OFF = 7 * 3600 * 1000, DAY = 86400000;
+    const nowTh = Date.now() + OFF, d = new Date(nowTh);
+    const dayStart = Math.floor(nowTh / DAY) * DAY - OFF;
+    if (period === 'day') return dayStart;
+    if (period === 'week') return dayStart - ((d.getUTCDay() + 6) % 7) * DAY;
+    if (period === 'month') return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1) - OFF;
+    return 0;
+}
+const isStaff = (u) => u.role === 'admin' || ADMIN_IDS.includes(u.id);
+function spendTotals(since) {
+    const map = new Map();
+    for (const o of Object.values(orders)) {
+        if (!o.userId) continue;
+        const counted = (o.game || 'opm') === 'points' ? o.status === 'done'
+            : ((o.status === 'received' || o.status === 'done') && o.payMethod !== 'balance');
+        if (!counted) continue;
+        const t = Number(o.updatedAt || o.createdAt) || 0;
+        if (t < since) continue;
+        map.set(o.userId, (map.get(o.userId) || 0) + (Number(o.price) || 0));
+    }
+    return [...map].map(([id, total]) => ({ id, total })).filter(x => x.total > 0).sort((a, b) => b.total - a.total);
+}
+async function buildLeaderboard(board, period) {
+    const since = periodStart(period);
+    if (board === 'level') {
+        if (!LV.enabled) return null;
+        const list = (await db.topExp(since, LB_TOP * 2)).filter(u => !isStaff(u)).slice(0, LB_TOP);
+        return list.map(u => ({ id: u.id, name: u.name, avatarUrl: avatarUrl(u), level: levelOf(u.exp), value: u.gained, exp: u.exp }));
+    }
+    const ranked = spendTotals(since).slice(0, LB_TOP * 2);
+    const byId = new Map((await db.getUsersByIds(ranked.map(r => r.id))).map(u => [u.id, u]));
+    return ranked.filter(r => byId.has(r.id) && !isStaff(byId.get(r.id))).slice(0, LB_TOP).map(r => {
+        const u = byId.get(r.id);
+        return { id: u.id, name: u.name, avatarUrl: avatarUrl(u), level: LV.enabled ? levelOf(u.exp) : 0, value: r.total, exp: u.exp };
+    });
+}
+const lbCache = new Map(); // เก็บผล 30 วินาที กันคนเปิดหน้าอันดับถี่ๆ ยิงฐานข้อมูลทุกครั้ง
+app.get('/api/leaderboard', statusLimiter, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const board = clean(req.query.board, 10) === 'level' ? 'level' : 'spend';
+        const p = clean(req.query.period, 10);
+        const period = ['day', 'week', 'month', 'all'].includes(p) ? p : 'week';
+        const key = board + ':' + period;
+        let hit = lbCache.get(key);
+        if (!hit || Date.now() - hit.t > 30000) { hit = { t: Date.now(), rows: await buildLeaderboard(board, period) }; lbCache.set(key, hit); }
+        if (hit.rows === null) return res.json({ success: true, board, period, disabled: true, rows: [] });
+        const s = readToken(parseCookies(req).session), meId = s ? String(s.id) : null;
+        return res.json({
+            success: true, board, period, updatedAt: hit.t,
+            rows: hit.rows.map((r, i) => ({ rank: i + 1, name: r.name, avatarUrl: r.avatarUrl, level: r.level, value: r.value, exp: r.exp, isMe: r.id === meId }))
+        });
+    } catch (e) {
+        console.error('/api/leaderboard ผิดพลาด:', e.message);
+        return res.status(500).json({ success: false, message: 'โหลดอันดับไม่สำเร็จ' });
+    }
+});
+
 // ---------- EXP / Level ของลูกค้า ----------
 const levelLimiter = rateLimit({
     windowMs: 10 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false,
