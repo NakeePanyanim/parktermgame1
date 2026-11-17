@@ -21,8 +21,12 @@ const DISCORD_CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const DISCORD_CLIENT_SECRET = process.env.DISCORD_CLIENT_SECRET;
 const SESSION_SECRET = process.env.SESSION_SECRET;
 const BASE_URL = (process.env.BASE_URL || '').replace(/\/+$/, ''); // เช่น https://ชื่อเว็บ.onrender.com
-// ส่วนลดของยศ Reseller (เปอร์เซ็นต์) ปรับได้ด้วยตัวแปร RESELLER_DISCOUNT ใน Render
-const DISCOUNT_PCT = Math.min(90, Math.max(0, Number(process.env.RESELLER_DISCOUNT ?? 10) || 0));
+// ส่วนลดของยศ Reseller (เปอร์เซ็นต์) แอดมินตั้งได้จากหน้า Admin (เก็บในฐานข้อมูล)
+// ตัวแปร RESELLER_DISCOUNT ใน Render ใช้เป็นค่าเริ่มต้น จนกว่าแอดมินจะตั้งค่าในหน้าเว็บครั้งแรก
+const clampPct = (n) => Math.min(90, Math.max(0, Number(n) || 0));
+let DISCOUNT_PCT = clampPct(process.env.RESELLER_DISCOUNT ?? 10);
+// (ไม่บังคับ) ช่อง Discord ที่รับใบสมัคร Partner/Reseller ถ้าไม่ตั้ง = ใช้ช่องเดียวกับออเดอร์
+const PARTNER_CHANNEL_ID = (process.env.PARTNER_CHANNEL_ID || '').trim() || CHANNEL_ID;
 const AUTH_ON = !!(DISCORD_CLIENT_ID && DISCORD_CLIENT_SECRET && SESSION_SECRET && BASE_URL);
 const REDIRECT_URI = BASE_URL + '/auth/discord/callback';
 const IS_HTTPS = BASE_URL.startsWith('https://');
@@ -139,6 +143,57 @@ function evalCode(c, price) {
     return { after, discount: price - after };
 }
 // ================================================================
+
+// ---------- ระบบ EXP / Level (ค่าตั้งแก้ได้ในหน้า Admin เก็บในตาราง settings คีย์ level_config) ----------
+// EXP ที่ได้ = ยอดที่จ่ายจริง (บาท) x expPerBaht | EXP ที่ใช้เลื่อนจากเลเวล L -> L+1 = expBase + expGrowth x (L-1)
+// รางวัลเลเวล: ทุกๆ rewardEvery เลเวล รับโค้ดลด rewardValue บาทได้ 1 โค้ด | expOnBalance = ซื้อแพ็กด้วยเงินในบัญชีให้ EXP ด้วยไหม
+// (ปิดไว้เป็นค่าเริ่มต้น เพราะตอนเติมเงินเข้าบัญชีได้ EXP ไปแล้ว ไม่งั้นเงินก้อนเดียวได้ EXP สองรอบ)
+const LV_DEFAULT = { enabled: true, expPerBaht: 1, expBase: 500, expGrowth: 0, maxLevel: 1000000, rewardEvery: 5, rewardValue: 50, expOnBalance: false };
+let LV = { ...LV_DEFAULT };
+const cumExp = (L, cfg = LV) => cfg.expBase * (L - 1) + cfg.expGrowth * ((L - 1) * (L - 2) / 2); // EXP สะสมที่ต้องมีเพื่อถึงเลเวล L
+function levelOf(exp, cfg = LV) {
+    let lo = 1, hi = cfg.maxLevel;
+    while (lo < hi) {
+        const mid = Math.floor((lo + hi + 1) / 2);
+        if (cumExp(mid, cfg) <= exp) lo = mid; else hi = mid - 1;
+    }
+    return lo;
+}
+function levelInfo(exp, claimed) {
+    const level = levelOf(exp);
+    const base = cumExp(level);
+    const need = level >= LV.maxLevel ? 0 : cumExp(level + 1) - base;
+    const earned = Math.floor(level / LV.rewardEvery);
+    const nextRewardLevel = (earned + 1) * LV.rewardEvery <= LV.maxLevel ? (earned + 1) * LV.rewardEvery : null;
+    return { exp, level, into: exp - base, need, maxLevel: LV.maxLevel, earned, claimed, claimable: Math.max(0, earned - claimed), nextRewardLevel, nextRewardExp: nextRewardLevel ? cumExp(nextRewardLevel) - exp : 0 };
+}
+const lvPublic = () => ({ enabled: LV.enabled, expPerBaht: LV.expPerBaht, rewardEvery: LV.rewardEvery, rewardValue: LV.rewardValue, maxLevel: LV.maxLevel });
+function readLevelConfig(b) {
+    const num = (k) => Number(b[k]);
+    const chk = (k, lo, hi, label) => (Number.isInteger(num(k)) && num(k) >= lo && num(k) <= hi) ? null : `${label} ต้องเป็นจำนวนเต็ม ${lo.toLocaleString('en-US')} - ${hi.toLocaleString('en-US')}`;
+    const err = chk('expPerBaht', 0, 1000, 'EXP ต่อ 1 บาท') || chk('expBase', 1, 1000000, 'EXP ที่ใช้อัพเลเวลพื้นฐาน') || chk('expGrowth', 0, 1000, 'EXP ที่เพิ่มขึ้นต่อเลเวล')
+        || chk('maxLevel', 1, 1000000, 'เลเวลสูงสุด') || chk('rewardEvery', 1, 1000, 'รับรางวัลทุกกี่เลเวล') || chk('rewardValue', 1, 1000, 'มูลค่าโค้ดรางวัล (บาท)');
+    if (err) return { error: err };
+    return { cfg: { enabled: b.enabled === true, expPerBaht: num('expPerBaht'), expBase: num('expBase'), expGrowth: num('expGrowth'), maxLevel: num('maxLevel'), rewardEvery: num('rewardEvery'), rewardValue: num('rewardValue'), expOnBalance: b.expOnBalance === true } };
+}
+
+// ให้ EXP จากออเดอร์ (ให้ได้ครั้งเดียวต่อออเดอร์ ด้วย ref = order:<id>) ล้มเหลวก็ไม่กระทบออเดอร์
+async function awardExp(order) {
+    try {
+        if (!LV.enabled || !order.userId || LV.expPerBaht <= 0) return;
+        const isTopup = order.game === 'points';
+        if (!isTopup && order.payMethod === 'balance' && !LV.expOnBalance) return;
+        const amount = Math.floor(Number(order.price) * LV.expPerBaht);
+        if (amount <= 0) return;
+        await db.addExp(order.userId, amount, 'order:' + order.id, `${isTopup ? 'เติมเงิน' : 'ซื้อแพ็ก'} ออเดอร์ #${order.id.slice(-6).toUpperCase()}`);
+    } catch (e) { console.error('ให้ EXP ไม่สำเร็จ:', order.id, e.message); }
+}
+// แอดมินกดปุ่มออเดอร์: รับเงิน/เสร็จสิ้น = ให้ EXP | ยอดไม่ครบ = ยกเลิก EXP ที่เคยให้ (ถ้ามี)
+async function settleExp(order, action) {
+    if (!order.userId) return;
+    if (action !== 'insufficient') return awardExp(order);
+    try { await db.revokeExp(order.userId, 'order:' + order.id); } catch (e) { console.error('ยกเลิก EXP ไม่สำเร็จ:', order.id, e.message); }
+}
 
 // ---------- ออเดอร์: เก็บใน Turso (โหลดเข้าหน่วยความจำตอนเริ่มเซิร์ฟเวอร์) ----------
 const ORDERS_FILE = path.join(__dirname, 'orders.json'); // ไฟล์เก่า ใช้นำเข้าครั้งเดียว
@@ -285,10 +340,73 @@ function buildMessage(o) {
     return { embeds: [embed], components: [row], allowedMentions: { parse: [] } };
 }
 
+// ---------- ใบสมัคร Partner/Reseller ----------
+const SHOP_TYPES = { page: 'เพจ', website: 'เว็บไซต์' };
+const PARTNER_REJECT_REASON = 'ยอดรายได้ต่อเดือนไม่เพียงพอ';
+const PARTNER_STATUS = {
+    pending:  { color: 0xF59E0B, text: '🕑 รอพิจารณา' },
+    accepted: { color: 0x57F287, text: '✅ รับเป็น Reseller แล้ว' },
+    rejected: { color: 0xED4245, text: '❌ ไม่รับ (' + PARTNER_REJECT_REASON + ')' }
+};
+
+function buildPartnerMessage(a) {
+    const s = PARTNER_STATUS[a.status] || PARTNER_STATUS.pending;
+    const embed = new EmbedBuilder()
+        .setTitle(`🤝 ใบสมัคร Partner/Reseller #${a.id.slice(-6).toUpperCase()}`)
+        .setDescription(`<@${a.userId}> สนใจเป็น Partner/Reseller`)
+        .setColor(s.color)
+        .addFields(
+            { name: '📌 สถานะ', value: s.text, inline: false },
+            { name: '🏪 ชื่อร้าน', value: code(a.shopName), inline: true },
+            { name: '🧭 รูปแบบร้าน', value: SHOP_TYPES[a.shopType] || '-', inline: true },
+            { name: '🔗 ชื่อเพจ/เว็บ หรือลิงก์', value: code(a.shopLink), inline: false },
+            { name: '💰 ยอดขายต่อเดือน', value: `**${a.monthlySales.toLocaleString('en-US')} บาท**`, inline: true },
+            { name: '📞 ช่องทางติดต่อ', value: code(a.contact), inline: true },
+            { name: '🎁 ส่วนลดของยศ Reseller', value: `${DISCOUNT_PCT}%`, inline: true }
+        )
+        .setFooter({ text: a.handledBy ? `ล่าสุดโดย ${a.handledBy}` : 'รอแอดมินดำเนินการ' })
+        .setTimestamp(new Date(a.updatedAt));
+    const done = a.status !== 'pending';
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`partner:${a.id}:accept`).setLabel('รับ').setStyle(ButtonStyle.Success).setDisabled(done),
+        new ButtonBuilder().setCustomId(`partner:${a.id}:reject`).setLabel('ไม่รับ').setStyle(ButtonStyle.Danger).setDisabled(done)
+    );
+    return { embeds: [embed], components: [row], allowedMentions: { parse: [] } };
+}
+
+// กดปุ่ม รับ / ไม่รับ: รับ = ได้ยศ Reseller ทันที | ไม่รับ = ลูกค้าเห็นสถานะในเว็บ (ยอดรายได้ต่อเดือนไม่เพียงพอ)
+async function handlePartnerButton(interaction, id, action) {
+    if (!['accept', 'reject'].includes(action)) return;
+    if (ADMIN_IDS.length && !ADMIN_IDS.includes(interaction.user.id)) {
+        const du = await db.getUser(interaction.user.id).catch(() => null);
+        if (!du || du.role !== 'admin') {
+            return interaction.reply({ content: 'คุณไม่มีสิทธิ์กดปุ่มนี้', flags: MessageFlags.Ephemeral });
+        }
+    }
+    const app = await db.getPartnerApp(id);
+    if (!app) return interaction.reply({ content: 'ไม่พบใบสมัครนี้ในระบบ', flags: MessageFlags.Ephemeral });
+    if (app.status !== 'pending') return interaction.update(buildPartnerMessage(app)); // ตัดสินไปแล้ว แค่รีเฟรชข้อความ
+
+    await interaction.deferUpdate();
+    const handler = interaction.user.globalName || interaction.user.username;
+    try {
+        const r = await db.decidePartnerApp(id, action === 'accept' ? 'accepted' : 'rejected', handler);
+        if (r.ok) {
+            await db.logAdmin(`${handler} (${interaction.user.id})`, action === 'accept' ? 'รับ Partner/Reseller' : 'ไม่รับ Partner/Reseller',
+                `ผู้ใช้ ${app.userId} ร้าน ${app.shopName} ยอดขาย ${app.monthlySales}/เดือน`).catch(() => {});
+        }
+    } catch (e) {
+        console.error('ตัดสินใบสมัคร Partner ไม่สำเร็จ:', e.message);
+        return interaction.followUp({ content: 'ดำเนินการไม่สำเร็จ (ยังไม่มีอะไรเปลี่ยน) กรุณากดใหม่อีกครั้ง', flags: MessageFlags.Ephemeral });
+    }
+    return interaction.editReply(buildPartnerMessage((await db.getPartnerApp(id)) || app));
+}
+
 client.on(Events.InteractionCreate, async (interaction) => {
     try {
         if (!interaction.isButton()) return;
         const [prefix, id, action] = interaction.customId.split(':');
+        if (prefix === 'partner') return await handlePartnerButton(interaction, id, action);
         if (prefix !== 'order') return;
 
         if (ADMIN_IDS.length && !ADMIN_IDS.includes(interaction.user.id)) {
@@ -322,6 +440,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 return interaction.followUp({ content: 'เพิ่ม Point ไม่สำเร็จ (ยังไม่มีอะไรเปลี่ยน) กรุณากดใหม่อีกครั้ง', flags: MessageFlags.Ephemeral });
             }
             order.status = 'done';
+            await awardExp(order);
             order.updatedAt = Date.now();
             order.handledBy = handler;
             await db.saveOrder(order).catch(e => console.error('บันทึกออเดอร์ไม่สำเร็จ:', e.message));
@@ -354,6 +473,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 console.error('ปรับยอดเงินในบัญชีไม่สำเร็จ:', e.message);
                 return interaction.followUp({ content: 'ปรับยอดเงินในบัญชีไม่สำเร็จ (สถานะไม่เปลี่ยน) กรุณากดใหม่อีกครั้ง', flags: MessageFlags.Ephemeral });
             }
+            await settleExp(order, action);
             order.status = action;
             order.updatedAt = Date.now();
             order.handledBy = handler;
@@ -370,6 +490,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 console.error('คืนสิทธิ์โค้ดไม่สำเร็จ:', e.message);
                 return interaction.followUp({ content: 'คืนสิทธิ์โค้ดไม่สำเร็จ (สถานะไม่เปลี่ยน) กรุณากดใหม่อีกครั้ง', flags: MessageFlags.Ephemeral });
             }
+            await settleExp(order, action);
             order.status = action;
             order.updatedAt = Date.now();
             order.handledBy = handler;
@@ -382,6 +503,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         order.handledBy = handler;
         saveOrder(order);
         await interaction.update(buildMessage(order));
+        await settleExp(order, action); // ทำหลังตอบ Discord แล้ว (ต้องตอบภายใน 3 วินาที)
     } catch (e) {
         console.error('จัดการปุ่ม Discord ไม่สำเร็จ:', e.message);
     }
@@ -658,7 +780,7 @@ app.get('/api/me', async (req, res) => {
     try {
         const u = await getSessionUser(req);
         if (!u) return res.json({ success: true, authEnabled: AUTH_ON, user: null });
-        return res.json({ success: true, authEnabled: AUTH_ON, user: { id: u.id, name: u.name, avatarUrl: avatarUrl(u), points: u.points, role: u.role, isAdmin: u.role === 'admin', discountPct: u.role === 'reseller' ? DISCOUNT_PCT : 0 } });
+        return res.json({ success: true, authEnabled: AUTH_ON, user: { id: u.id, name: u.name, avatarUrl: avatarUrl(u), points: u.points, role: u.role, isAdmin: u.role === 'admin', discountPct: u.role === 'reseller' ? DISCOUNT_PCT : 0, exp: u.exp, level: LV.enabled ? levelOf(u.exp) : 0 } });
     } catch (e) {
         console.error('/api/me ผิดพลาด:', e.message);
         return res.json({ success: true, authEnabled: AUTH_ON, user: null });
@@ -705,7 +827,7 @@ app.get('/api/packages', async (req, res) => {
         if (GAMES[gk].custom) continue; // เติม Point กรอกจำนวนเอง ไม่มีแพ็กเกจ
         out[gk] = (PKG[gk] || []).map(p => ({ name: p.name, qty: p.qty, price: priceFor(user, p.price), basePrice: p.price, note: p.note, tag: p.tag }));
     }
-    res.json({ success: true, packages: out, discountPct: user && user.role === 'reseller' ? DISCOUNT_PCT : 0 });
+    res.json({ success: true, packages: out, discountPct: user && user.role === 'reseller' ? DISCOUNT_PCT : 0, resellerPct: DISCOUNT_PCT });
 });
 
 // ตรวจโค้ดส่วนลดก่อนกดซื้อ (ใช้แสดงราคาใหม่ในหน้าเว็บ ยังไม่ใช้สิทธิ์จริง)
@@ -734,6 +856,109 @@ app.post('/api/discount/check', codeLimiter, async (req, res) => {
     }
 });
 
+// ---------- EXP / Level ของลูกค้า ----------
+const levelLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000, max: 30, standardHeaders: true, legacyHeaders: false,
+    message: { success: false, message: 'ทำรายการบ่อยเกินไป กรุณารอสักครู่' }
+});
+
+app.get('/api/level', statusLimiter, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const user = await getSessionUser(req);
+        if (!user) return res.status(401).json({ success: false, needLogin: true, message: 'กรุณาเข้าสู่ระบบ' });
+        if (!LV.enabled) return res.json({ success: true, config: lvPublic() });
+        const claimed = await db.countRewards(user.id);
+        return res.json({ success: true, config: lvPublic(), info: levelInfo(user.exp, claimed), rewards: await db.listLevelRewards(user.id, 20) });
+    } catch (e) {
+        console.error('/api/level ผิดพลาด:', e.message);
+        return res.status(500).json({ success: false, message: 'โหลดข้อมูลเลเวลไม่สำเร็จ' });
+    }
+});
+
+// กดรับรางวัลเลเวล -> สร้างโค้ด 6 หลักลดตามที่ตั้งไว้ (รับได้ทีละ 1 โค้ด ถ้ามีหลายรางวัลค้างให้กดรับต่อ)
+app.post('/api/level/claim', levelLimiter, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const user = await getSessionUser(req);
+        if (!user) return res.status(401).json({ success: false, needLogin: true, message: 'กรุณาเข้าสู่ระบบ' });
+        if (!LV.enabled) return res.status(400).json({ success: false, message: 'ระบบเลเวลปิดใช้งานอยู่' });
+        const r = await db.claimLevelReward(user.id, { levelOf: (e) => levelOf(e), every: LV.rewardEvery, value: LV.rewardValue });
+        if (r.none || r.notFound) return res.status(400).json({ success: false, message: 'ยังไม่มีรางวัลเลเวลที่รับได้' });
+        const fresh = await db.getUser(user.id);
+        return res.json({ success: true, code: r.code, value: r.value, rewardLevel: r.rewardLevel, remaining: r.remaining, info: levelInfo(fresh.exp, await db.countRewards(user.id)), rewards: await db.listLevelRewards(user.id, 20) });
+    } catch (e) {
+        console.error('/api/level/claim ผิดพลาด:', e.message);
+        return res.status(500).json({ success: false, message: 'รับรางวัลไม่สำเร็จ กรุณาลองใหม่' });
+    }
+});
+
+// ---------- สมัคร Partner/Reseller ----------
+const partnerLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false,
+    message: { success: false, message: 'ส่งใบสมัครบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่' }
+});
+
+app.post('/api/partner/apply', partnerLimiter, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    const bad = (msg, code = 400) => res.status(code).json({ success: false, message: msg });
+    try {
+        const user = await getSessionUser(req);
+        if (!user) return res.status(401).json({ success: false, needLogin: true, message: 'กรุณาเข้าสู่ระบบด้วย Discord ก่อนสมัคร' });
+        if (user.role === 'reseller' || user.role === 'admin') return bad('บัญชีของคุณเป็น Reseller/แอดมินอยู่แล้ว');
+
+        const shopName = clean(req.body.shopName, 60);
+        const shopType = clean(req.body.shopType, 10);
+        const shopLink = clean(req.body.shopLink, 200);
+        const contact = clean(req.body.contact, 100);
+        const monthlySales = Number(req.body.monthlySales);
+        if (!shopName || !shopLink || !contact) return bad('กรุณากรอกข้อมูลให้ครบทุกช่อง');
+        if (!hasOwn(SHOP_TYPES, shopType)) return bad('กรุณาเลือกว่าร้านของคุณเป็นเพจหรือเว็บไซต์');
+        if (!Number.isInteger(monthlySales) || monthlySales < 0 || monthlySales > 1000000000) return bad('ยอดขายต่อเดือนต้องเป็นจำนวนเต็ม (บาท)');
+
+        const latest = await db.getLatestPartnerApp(user.id);
+        if (latest && latest.status === 'pending') return bad('คุณมีใบสมัครที่รอแอดมินพิจารณาอยู่แล้ว');
+
+        const id = crypto.randomBytes(12).toString('hex');
+        try {
+            await db.createPartnerApp({ id, userId: user.id, shopName, shopType, shopLink, monthlySales, contact });
+        } catch (e) {
+            if (/unique/i.test(String(e.message))) return bad('คุณมีใบสมัครที่รอแอดมินพิจารณาอยู่แล้ว');
+            throw e;
+        }
+        try {
+            const channel = await client.channels.fetch(PARTNER_CHANNEL_ID);
+            const msg = await channel.send(buildPartnerMessage(await db.getPartnerApp(id)));
+            await db.setPartnerAppMessage(id, msg.id).catch(() => {});
+        } catch (e) {
+            console.error('ส่งใบสมัคร Partner เข้า Discord ไม่สำเร็จ:', e.message);
+            db.deletePartnerApp(id).catch(() => {});
+            return bad('ระบบแจ้งเตือนแอดมินขัดข้อง กรุณาลองใหม่อีกครั้ง', 502);
+        }
+        return res.json({ success: true, status: 'pending', message: 'ส่งใบสมัครแล้ว รอแอดมินพิจารณา' });
+    } catch (e) {
+        console.error('/api/partner/apply ผิดพลาด:', e.message);
+        return bad('ส่งใบสมัครไม่สำเร็จ กรุณาลองใหม่', 500);
+    }
+});
+
+// สถานะใบสมัครล่าสุดของผู้ใช้ที่ล็อกอินอยู่
+app.get('/api/partner/status', statusLimiter, async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+        const user = await getSessionUser(req);
+        if (!user) return res.json({ success: true, loggedIn: false, resellerPct: DISCOUNT_PCT });
+        const a = await db.getLatestPartnerApp(user.id);
+        return res.json({
+            success: true, loggedIn: true, role: user.role, resellerPct: DISCOUNT_PCT,
+            application: a ? { status: a.status, shopName: a.shopName, createdAt: a.createdAt, updatedAt: a.updatedAt, reason: a.status === 'rejected' ? PARTNER_REJECT_REASON : '' } : null
+        });
+    } catch (e) {
+        console.error('/api/partner/status ผิดพลาด:', e.message);
+        return res.status(500).json({ success: false, message: 'โหลดสถานะไม่สำเร็จ' });
+    }
+});
+
 // ---------- API หลังบ้านสำหรับแอดมิน (ต้องมียศ admin) ----------
 const adminLimiter = rateLimit({
     windowMs: 10 * 60 * 1000, max: 300, standardHeaders: true, legacyHeaders: false,
@@ -759,9 +984,45 @@ const wrap = (fn) => (req, res) => fn(req, res).catch(e => { console.error('admi
 
 admin.get('/me', (req, res) => res.json({ success: true, name: req.admin.name, id: req.admin.id, discountPct: DISCOUNT_PCT }));
 
+// ตั้งส่วนลดของยศ Reseller (%) มีผลทันทีกับราคาที่ลูกค้าเห็นและออเดอร์ใหม่ (ออเดอร์เก่าไม่เปลี่ยน)
+admin.post('/reseller-discount', wrap(async (req, res) => {
+    const pct = Number(req.body.pct);
+    if (!Number.isInteger(pct) || pct < 0 || pct > 90) return fail(res, 'ส่วนลดต้องเป็นจำนวนเต็ม 0 - 90');
+    const before = DISCOUNT_PCT;
+    await db.setSetting('reseller_discount', pct);
+    DISCOUNT_PCT = pct;
+    await db.logAdmin(`${req.admin.name} (${req.admin.id})`, 'ตั้งส่วนลด Reseller', `${before}% -> ${pct}%`);
+    res.json({ success: true, pct });
+}));
+
+admin.get('/level-config', wrap(async (req, res) => {
+    res.json({ success: true, config: LV });
+}));
+admin.post('/level-config', wrap(async (req, res) => {
+    const r = readLevelConfig(req.body || {});
+    if (r.error) return fail(res, r.error);
+    const before = LV;
+    await db.setSetting('level_config', JSON.stringify(r.cfg));
+    LV = r.cfg;
+    await db.logAdmin(`${req.admin.name} (${req.admin.id})`, 'ตั้งค่าระบบเลเวล', `เปิด=${r.cfg.enabled} EXP/บาท=${r.cfg.expPerBaht} พื้นฐาน=${r.cfg.expBase} เพิ่ม/เลเวล=${r.cfg.expGrowth} สูงสุด=${r.cfg.maxLevel} รางวัลทุก ${r.cfg.rewardEvery} เลเวล ลด ${r.cfg.rewardValue} บาท (ก่อนหน้า: พื้นฐาน=${before.expBase} เพิ่ม=${before.expGrowth})`);
+    res.json({ success: true, config: LV });
+}));
+
+// เพิ่ม/ลด EXP ให้ผู้ใช้ (บวก = เพิ่ม, ลบ = ลด) ต้องใส่เหตุผล
+admin.post('/users/:id/exp', wrap(async (req, res) => {
+    if (!USER_ID_RE.test(req.params.id)) return fail(res, 'Discord ID ไม่ถูกต้อง');
+    const delta = Number(req.body.delta), reason = clean(req.body.reason, 200);
+    if (!Number.isInteger(delta) || delta === 0 || Math.abs(delta) > 1000000000) return fail(res, 'จำนวน EXP ต้องเป็นจำนวนเต็มที่ไม่ใช่ 0');
+    if (!reason) return fail(res, 'กรุณาใส่เหตุผล');
+    const r = await db.addExp(req.params.id, delta, null, reason, req.admin.name);
+    if (r.notFound) return fail(res, 'ไม่พบผู้ใช้', 404);
+    await db.logAdmin(`${req.admin.name} (${req.admin.id})`, delta > 0 ? 'เพิ่ม EXP' : 'ลด EXP', `ผู้ใช้ ${req.params.id}: ${delta > 0 ? '+' : ''}${delta} เหตุผล: ${reason} (EXP ตอนนี้ ${r.exp})`);
+    res.json({ success: true, exp: r.exp, level: levelOf(r.exp) });
+}));
+
 admin.get('/users', wrap(async (req, res) => {
     const users = await db.listUsers(clean(req.query.q, 60), 50);
-    res.json({ success: true, users: users.map(u => ({ ...u, role: ADMIN_IDS.includes(u.id) ? 'admin' : u.role, avatarUrl: avatarUrl(u), locked: ADMIN_IDS.includes(u.id) })) });
+    res.json({ success: true, users: users.map(u => ({ ...u, level: levelOf(u.exp), role: ADMIN_IDS.includes(u.id) ? 'admin' : u.role, avatarUrl: avatarUrl(u), locked: ADMIN_IDS.includes(u.id) })) });
 }));
 
 admin.get('/users/:id', wrap(async (req, res) => {
@@ -770,7 +1031,7 @@ admin.get('/users/:id', wrap(async (req, res) => {
     if (!u) return fail(res, 'ไม่พบผู้ใช้ (ต้องเคยล็อกอินเข้าเว็บอย่างน้อย 1 ครั้ง)', 404);
     const mine = Object.values(orders).filter(o => o.userId === u.id).sort((a, b) => b.createdAt - a.createdAt).slice(0, 20)
         .map(o => ({ id: o.id, game: o.game || 'opm', packageName: o.packageName, price: o.price, payMethod: o.payMethod || 'voucher', status: o.status, createdAt: o.createdAt }));
-    res.json({ success: true, user: { ...u, role: ADMIN_IDS.includes(u.id) ? 'admin' : u.role, avatarUrl: avatarUrl(u), locked: ADMIN_IDS.includes(u.id) }, ledger: await db.getLedger(u.id, 30), orders: mine });
+    res.json({ success: true, user: { ...u, level: levelOf(u.exp), role: ADMIN_IDS.includes(u.id) ? 'admin' : u.role, avatarUrl: avatarUrl(u), locked: ADMIN_IDS.includes(u.id) }, ledger: await db.getLedger(u.id, 30), orders: mine });
 }));
 
 // เพิ่ม/หัก Point (delta บวก = เพิ่ม, ลบ = หัก) ต้องใส่เหตุผลเสมอ และบันทึกลง ledger
@@ -985,12 +1246,18 @@ app.get('/api/order/:id', statusLimiter, (req, res) => {
 (async () => {
     try {
         await db.initDb();
+        const savedPct = await db.getSetting('reseller_discount');
+        if (savedPct !== null && savedPct !== '') DISCOUNT_PCT = clampPct(savedPct);
+        try {
+            const savedLv = await db.getSetting('level_config');
+            if (savedLv) { const r = readLevelConfig(JSON.parse(savedLv)); if (r.cfg) LV = r.cfg; }
+        } catch (e) { console.error('อ่านค่าระบบเลเวลไม่สำเร็จ ใช้ค่าเริ่มต้น:', e.message); }
         orders = await db.loadOrders();
         const seeded = await db.seedPackages(seedList());
         if (seeded) console.log(`ใส่แพ็กเกจตั้งต้นลงฐานข้อมูล ${seeded} รายการ`);
         await loadPackages();
         await importLegacyOrders();
-        console.log(`โหลดออเดอร์จากฐานข้อมูล ${Object.keys(orders).length} รายการ | ล็อกอิน Discord: ${AUTH_ON ? 'เปิด' : 'ปิด (ยังไม่ตั้งค่า)'} | โอนธนาคาร: ${BANK_ON ? 'เปิด' : 'ปิด (ยังไม่ตั้งค่า BANK_*)'}`);
+        console.log(`โหลดออเดอร์จากฐานข้อมูล ${Object.keys(orders).length} รายการ | ส่วนลด Reseller: ${DISCOUNT_PCT}% | ล็อกอิน Discord: ${AUTH_ON ? 'เปิด' : 'ปิด (ยังไม่ตั้งค่า)'} | โอนธนาคาร: ${BANK_ON ? 'เปิด' : 'ปิด (ยังไม่ตั้งค่า BANK_*)'}`);
     } catch (e) {
         const tok = (process.env.TURSO_AUTH_TOKEN || '').trim();
         const msg = tok ? String(e.message).split(tok).join('***') : e.message; // ไม่พิมพ์ Token ลง Logs
