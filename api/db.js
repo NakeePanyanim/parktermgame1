@@ -465,6 +465,26 @@ async function claimLevelReward(userId, cfg) {
     }
 }
 
+// ---------- อันดับ (Leaderboard) ----------
+async function getUsersByIds(ids) {
+    if (!ids.length) return [];
+    const r = await db.execute({ sql: `SELECT discord_id, name, avatar, role, exp FROM users WHERE discord_id IN (${ids.map(() => '?').join(',')})`, args: ids });
+    return r.rows.map(u => ({ id: String(u.discord_id), name: String(u.name), avatar: u.avatar ? String(u.avatar) : null, role: u.role ? String(u.role) : 'member', exp: Number(u.exp || 0) }));
+}
+
+// อันดับ EXP: since = 0 -> EXP สะสมทั้งหมด | since > 0 -> EXP ที่ได้ตั้งแต่เวลานั้น (รวมบวก/ลบจากสมุด exp_log)
+async function topExp(since, limit) {
+    const r = since
+        ? await db.execute({
+            sql: `SELECT u.discord_id, u.name, u.avatar, u.role, u.exp, SUM(l.delta) AS gained
+                  FROM exp_log l JOIN users u ON u.discord_id = l.user_id
+                  WHERE l.created_at >= ? GROUP BY l.user_id HAVING gained > 0 ORDER BY gained DESC LIMIT ?`,
+            args: [since, limit]
+        })
+        : await db.execute({ sql: 'SELECT discord_id, name, avatar, role, exp, exp AS gained FROM users WHERE exp > 0 ORDER BY exp DESC LIMIT ?', args: [limit] });
+    return r.rows.map(u => ({ id: String(u.discord_id), name: String(u.name), avatar: u.avatar ? String(u.avatar) : null, role: u.role ? String(u.role) : 'member', exp: Number(u.exp || 0), gained: Number(u.gained || 0) }));
+}
+
 // ---------- ตั้งค่า (settings) ----------
 async function getSetting(key) {
     const r = await db.execute({ sql: 'SELECT value FROM settings WHERE key = ?', args: [key] });
@@ -550,6 +570,7 @@ async function getAdminLog(limit = 50) {
 
 module.exports = {
     listCodes, getCodeByCode, userUsedCode, createCode, updateCode, deleteCode, redeemCode, releaseCodeUse, listCodeUses,
+    getUsersByIds, topExp,
     addExp, revokeExp, countRewards, listLevelRewards, claimLevelReward,
     getSetting, setSetting, createPartnerApp, getPartnerApp, getLatestPartnerApp, setPartnerAppMessage, deletePartnerApp, decidePartnerApp,
     ROLES, listUsers, setRole, listPackages, seedPackages, savePackage, deletePackage, logAdmin, getAdminLog, initDb, upsertUser, getUser, adjustPoints, getLedger, loadOrders, saveOrder, deleteOrder };
