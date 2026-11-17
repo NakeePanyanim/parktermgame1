@@ -55,6 +55,7 @@ tailwind.config = {
     <button class="tab btn" data-tab="users">ผู้ใช้ & เงิน</button>
     <button class="tab btn" data-tab="packages">แพ็กเกจ & ราคา</button>
     <button class="tab btn" data-tab="codes">โค้ดส่วนลด</button>
+    <button class="tab btn" data-tab="level">เลเวล & EXP</button>
     <button class="tab btn" data-tab="orders">ออเดอร์</button>
     <button class="tab btn" data-tab="log">บันทึกแอดมิน</button>
   </nav>
@@ -93,6 +94,13 @@ tailwind.config = {
       <button class="btn pk-game on-game" data-game="opm">One Punch Man</button>
       <button class="btn pk-game" data-game="roblox">Roblox</button>
     </div>
+    <div class="rounded-xl border border-line bg-panel p-3 mb-3 flex flex-wrap items-center gap-2">
+      <span class="text-sm font-medium">ส่วนลดยศ Reseller</span>
+      <input id="discInput" class="field !w-24" inputmode="numeric" maxlength="2" autocomplete="off">
+      <span class="text-sm">%</span>
+      <button id="discSave" class="btn">บันทึก</button>
+      <span class="text-[11px] text-slate-500">ตั้งได้ 0 - 90 มีผลทันที (ออเดอร์เก่าไม่เปลี่ยน)</span>
+    </div>
     <p class="text-xs text-slate-500 mb-4">ราคาที่ตั้งในหน้านี้คือ <b class="text-slate-300">ราคาปกติ</b> ยศ Reseller จะถูกลดอัตโนมัติ <b id="discPct" class="text-amber-300">10</b>% (ปัดเป็นบาทเต็ม) ลูกค้าที่เปิดหน้าเว็บอยู่จะเห็นราคาใหม่เมื่อรีเฟรช ออเดอร์เก่าไม่ได้รับผลกระทบ</p>
     <div id="pkgList" class="space-y-2"></div>
   </section>
@@ -121,6 +129,29 @@ tailwind.config = {
   </section>
 
   <!-- ออเดอร์ -->
+  <!-- เลเวล & EXP -->
+  <section id="tab-level" class="hidden">
+    <div class="rounded-2xl border border-line bg-panel p-4 max-w-2xl">
+      <label class="flex items-center gap-2 text-sm font-medium"><input type="checkbox" id="lvEnabled" class="accent-amber-500 w-4 h-4"> เปิดระบบเลเวล (ปิด = ไม่ให้ EXP และรับรางวัลไม่ได้)</label>
+      <div class="grid sm:grid-cols-2 gap-3 mt-4">
+        <label class="text-xs text-slate-400">EXP ที่ได้ต่อ 1 บาท (ยอดที่จ่ายจริง)<input id="lvExpPerBaht" class="field mt-1" inputmode="numeric" autocomplete="off"></label>
+        <label class="text-xs text-slate-400">EXP ที่ใช้อัพเลเวลพื้นฐาน (Lv.1 → 2)<input id="lvExpBase" class="field mt-1" inputmode="numeric" autocomplete="off"></label>
+        <label class="text-xs text-slate-400">EXP ที่ต้องใช้เพิ่มขึ้นต่อเลเวล (0 = ทุกเลเวลใช้เท่ากัน)<input id="lvExpGrowth" class="field mt-1" inputmode="numeric" autocomplete="off"></label>
+        <label class="text-xs text-slate-400">เลเวลสูงสุด (ไม่เกิน 1,000,000)<input id="lvMaxLevel" class="field mt-1" inputmode="numeric" autocomplete="off"></label>
+        <label class="text-xs text-slate-400">รับรางวัลทุกๆ กี่เลเวล<input id="lvRewardEvery" class="field mt-1" inputmode="numeric" autocomplete="off"></label>
+        <label class="text-xs text-slate-400">โค้ดรางวัลลดกี่บาท (โค้ด 6 หลัก ใช้ได้ 1 ครั้ง)<input id="lvRewardValue" class="field mt-1" inputmode="numeric" autocomplete="off"></label>
+      </div>
+      <label class="flex items-start gap-2 text-sm mt-4"><input type="checkbox" id="lvOnBalance" class="accent-amber-500 w-4 h-4 mt-0.5"> <span>ซื้อแพ็กด้วยเงินในบัญชีให้ EXP ด้วย<br><span class="text-[11px] text-slate-500">แนะนำให้ปิดไว้ เพราะตอนเติมเงินเข้าบัญชีได้ EXP ไปแล้ว ถ้าเปิดเงินก้อนเดียวจะได้ EXP สองรอบ</span></span></label>
+      <div id="lvPreview" class="mt-4 rounded-xl bg-ink border border-line p-3 text-xs text-slate-400 space-y-1"></div>
+      <button id="lvSave" class="grad-btn mt-4 px-5 py-2.5 rounded-xl text-sm font-semibold text-white">บันทึกการตั้งค่า</button>
+      <ul class="text-[11px] text-slate-500 mt-4 space-y-0.5 list-disc pl-4">
+        <li>EXP ได้จากออเดอร์เติมเงิน (ตอนแอดมินกด "รับเงิน") และออเดอร์แพ็กเกจที่จ่ายด้วยซอง (ตอนกด "รับเงิน"/"เสร็จสิ้น") ถ้ากด "ยอดไม่ครบ" ภายหลัง EXP ของออเดอร์นั้นจะถูกหักคืน</li>
+        <li>เลเวลคำนวณจาก EXP รวมตามค่าที่ตั้ง ถ้าแก้ค่าที่นี่ เลเวลของทุกคนจะคำนวณใหม่ทันที รางวัลที่รับไปแล้วไม่ถูกเรียกคืน</li>
+        <li>ปรับ EXP รายคนได้ที่แท็บ "ผู้ใช้ & เงิน"</li>
+      </ul>
+    </div>
+  </section>
+
   <section id="tab-orders" class="hidden">
     <div class="flex flex-wrap gap-2 mb-3">
       <input id="orderQ" class="field flex-1 min-w-[180px]" placeholder="ค้นหา เลขออเดอร์ / ชื่อผู้ใช้ / UID / แพ็กเกจ" autocomplete="off">
@@ -179,7 +210,7 @@ const run = async (fn) => { try { return await fn(); } catch (e) { toast(e.messa
 async function boot() {
   try {
     const me = await api('/me');
-    $('meName').textContent = me.name; discountPct = me.discountPct; $('discPct').textContent = me.discountPct;
+    $('meName').textContent = me.name; discountPct = me.discountPct; $('discPct').textContent = $('discInput').value = me.discountPct;
     $('gate').classList.add('hidden'); $('app').classList.remove('hidden');
     loadStats();
     searchUsers(); 
@@ -193,11 +224,12 @@ async function boot() {
 const loaded = {};
 document.querySelectorAll('#tabs .tab').forEach(b => b.addEventListener('click', () => {
   document.querySelectorAll('#tabs .tab').forEach(x => x.classList.toggle('on', x === b));
-  ['stats', 'users', 'packages', 'codes', 'orders', 'log'].forEach(k => $('tab-' + k).classList.toggle('hidden', k !== b.dataset.tab));
+  ['stats', 'users', 'packages', 'codes', 'level', 'orders', 'log'].forEach(k => $('tab-' + k).classList.toggle('hidden', k !== b.dataset.tab));
   const k = b.dataset.tab;
   if (k === 'stats') loadStats();
   if (k === 'packages') loadPackages();
   if (k === 'codes') loadCodes();
+  if (k === 'level') loadLevel();
   if (k === 'orders') loadOrders();
   if (k === 'log') loadLog();
 }));
@@ -216,7 +248,7 @@ async function searchUsers() {
       <li><button type="button" data-id="${esc(u.id)}" class="user-row row-hover w-full text-left flex items-center gap-3 rounded-xl border ${u.id === selectedUser ? 'border-amber-400' : 'border-line'} bg-panel p-3 transition">
         ${avatar(u)}
         <span class="min-w-0 flex-1"><span class="block font-medium truncate">${esc(u.name)}</span><span class="block text-[11px] text-slate-500">${esc(u.id)} · ล็อกอินล่าสุด ${esc(when(u.lastLogin))}</span></span>
-        <span class="text-right shrink-0">${roleBadge(u.role)}<span class="block text-sm font-bold mt-1">${fmt(u.points)} ฿</span></span>
+        <span class="text-right shrink-0">${roleBadge(u.role)}<span class="block text-sm font-bold mt-1">${fmt(u.points)} ฿</span><span class="block text-[11px] text-sky-300">Lv.${fmt(u.level)}</span></span>
       </button></li>`).join('') : '<li class="text-center text-slate-500 py-8">ไม่พบผู้ใช้</li>';
     document.querySelectorAll('.user-row').forEach(b => b.addEventListener('click', () => openUser(b.dataset.id)));
   });
@@ -255,6 +287,17 @@ async function openUser(id) {
           <button id="ptSub" class="btn danger">− หักเงิน</button>
         </div>
 
+        <div class="mt-2 rounded-xl bg-ink border border-line p-3 flex justify-between items-end">
+          <span class="text-sm text-slate-400">เลเวล <b class="text-slate-200">Lv.${fmt(u.level)}</b></span><span class="text-xl font-extrabold text-sky-300">${fmt(u.exp)} <span class="text-sm">EXP</span></span>
+        </div>
+        <p class="mt-4 text-xs font-medium text-slate-300">เพิ่ม / ลด EXP</p>
+        <div class="grid grid-cols-2 gap-2 mt-1.5">
+          <input id="xpAmount" class="field" inputmode="numeric" placeholder="จำนวน EXP" autocomplete="off">
+          <input id="xpReason" class="field" placeholder="เหตุผล (บังคับ)" maxlength="200" autocomplete="off">
+          <button id="xpAdd" class="btn">+ เพิ่ม EXP</button>
+          <button id="xpSub" class="btn danger">- ลด EXP</button>
+        </div>
+
         <p class="mt-4 text-xs font-medium text-slate-300">ความเคลื่อนไหวล่าสุด</p>
         <ul class="mt-1.5 space-y-1.5 max-h-56 overflow-y-auto pr-1 text-sm">
           ${d.ledger.length ? d.ledger.map(r => `<li class="flex justify-between gap-3 rounded-lg bg-ink border border-line px-3 py-2">
@@ -284,9 +327,66 @@ async function openUser(id) {
     });
     $('ptAdd').addEventListener('click', () => adjust(1));
     $('ptSub').addEventListener('click', () => adjust(-1));
+    const adjustXp = (sign) => run(async () => {
+      const n = Number($('xpAmount').value.replace(/[,\s]/g, ''));
+      const reason = $('xpReason').value.trim();
+      if (!Number.isInteger(n) || n <= 0) throw new Error('กรอกจำนวน EXP เป็นจำนวนเต็มบวก');
+      if (!reason) throw new Error('กรุณาใส่เหตุผล');
+      if (!confirm(`${sign > 0 ? 'เพิ่ม' : 'ลด'} EXP ${fmt(n)} ${sign > 0 ? 'ให้' : 'ของ'} ${u.name}\nเหตุผล: ${reason}\n\nยืนยัน?`)) return;
+      const r = await api(`/users/${u.id}/exp`, { delta: sign * n, reason });
+      toast(`สำเร็จ EXP ตอนนี้ ${fmt(r.exp)} (Lv.${fmt(r.level)})`); await openUser(u.id); searchUsers();
+    });
+    $('xpAdd').addEventListener('click', () => adjustXp(1));
+    $('xpSub').addEventListener('click', () => adjustXp(-1));
     searchUsers();
   });
 }
+
+/* ---------- ส่วนลดยศ Reseller ---------- */
+$('discSave').addEventListener('click', () => run(async () => {
+  const n = Number($('discInput').value);
+  if (!Number.isInteger(n) || n < 0 || n > 90) throw new Error('ส่วนลดต้องเป็นจำนวนเต็ม 0 - 90');
+  if (!confirm(`ตั้งส่วนลดยศ Reseller เป็น ${n}% ?\nมีผลกับราคาที่ Reseller เห็นและออเดอร์ใหม่ทันที (ออเดอร์เก่าไม่เปลี่ยน)`)) return;
+  const d = await api('/reseller-discount', { pct: n });
+  discountPct = d.pct; $('discPct').textContent = d.pct; renderPackages(); toast('บันทึกส่วนลด Reseller แล้ว');
+}));
+
+/* ---------- เลเวล & EXP ---------- */
+const LV_FIELDS = ['ExpPerBaht', 'ExpBase', 'ExpGrowth', 'MaxLevel', 'RewardEvery', 'RewardValue'];
+const lvKey = n => n.charAt(0).toLowerCase() + n.slice(1);
+const lvCum = (L, c) => c.expBase * (L - 1) + c.expGrowth * ((L - 1) * (L - 2) / 2);
+function lvRead() {
+  const c = { enabled: $('lvEnabled').checked, expOnBalance: $('lvOnBalance').checked };
+  LV_FIELDS.forEach(n => { c[lvKey(n)] = Number($('lv' + n).value.replace(/[,\s]/g, '')); });
+  return c;
+}
+function lvPreview() {
+  const c = lvRead(), box = $('lvPreview');
+  if (LV_FIELDS.some(n => !Number.isFinite(c[lvKey(n)]))) { box.textContent = ''; return; }
+  const rows = [2, 5, 10, 50, 100].filter(L => L <= c.maxLevel).map(L => {
+    const exp = lvCum(L, c);
+    return `Lv.${fmt(L)} ต้องใช้ ${fmt(exp)} EXP` + (c.expPerBaht > 0 ? ` (ใช้เงินจริงประมาณ ${fmt(Math.ceil(exp / c.expPerBaht))} บาท)` : '');
+  });
+  let tip = '';
+  if (c.expPerBaht > 0 && c.rewardEvery <= c.maxLevel) {
+    const spend = Math.ceil(lvCum(c.rewardEvery, c) / c.expPerBaht);
+    tip = `<p class="text-amber-300">โค้ดรางวัลแรกที่ Lv.${fmt(c.rewardEvery)}: ใช้เงินจริงประมาณ ${fmt(spend)} บาท ได้โค้ดลด ${fmt(c.rewardValue)} บาท (คิดเป็นประมาณ ${spend > 0 ? (c.rewardValue / spend * 100).toFixed(1) : '-'}% ของยอดที่จ่าย)</p>`;
+  }
+  box.innerHTML = '<p class="text-slate-300 font-medium">ตัวอย่างตามค่าที่กรอก</p>' + rows.map(r => `<p>${esc(r)}</p>`).join('') + tip;
+}
+function lvFill(c) {
+  $('lvEnabled').checked = !!c.enabled; $('lvOnBalance').checked = !!c.expOnBalance;
+  LV_FIELDS.forEach(n => { $('lv' + n).value = c[lvKey(n)]; });
+  lvPreview();
+}
+async function loadLevel() { await run(async () => { lvFill((await api('/level-config')).config); }); }
+LV_FIELDS.forEach(n => $('lv' + n).addEventListener('input', lvPreview));
+$('lvSave').addEventListener('click', () => run(async () => {
+  const c = lvRead();
+  if (!confirm('บันทึกการตั้งค่าระบบเลเวล?\nเลเวลของทุกคนจะคำนวณใหม่ตามค่าที่ตั้งทันที')) return;
+  const d = await api('/level-config', c);
+  lvFill(d.config); toast('บันทึกการตั้งค่าเลเวลแล้ว');
+}));
 
 /* ---------- สถิติยอด ---------- */
 const PERIODS = [['day', 'วันนี้'], ['week', 'สัปดาห์นี้'], ['month', 'เดือนนี้'], ['year', 'ปีนี้'], ['all', 'ทั้งหมด']];
@@ -332,7 +432,7 @@ document.querySelectorAll('.pk-game').forEach(b => b.addEventListener('click', (
   renderPackages();
 }));
 async function loadPackages() {
-  await run(async () => { const d = await api('/packages'); allPkgs = d.packages; discountPct = d.discountPct; $('discPct').textContent = d.discountPct; renderPackages(); });
+  await run(async () => { const d = await api('/packages'); allPkgs = d.packages; discountPct = d.discountPct; $('discPct').textContent = $('discInput').value = d.discountPct; renderPackages(); });
 }
 const resPrice = p => Math.max(1, Math.round(p * (100 - discountPct) / 100));
 function pkgFormHTML(p, isNew) {
