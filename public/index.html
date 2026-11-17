@@ -48,6 +48,7 @@ tailwind.config = {
   .pay-opt:hover .pay-card { border-color: #4a4a5a; }
   .pay-opt input:checked + .pay-card { border-color: #f59e0b; background: rgba(245,158,11,.08); box-shadow: 0 0 0 1px #f59e0b; }
   .pay-opt input:focus-visible + .pay-card { outline: 2px solid #fbbf24; outline-offset: 2px; }
+  .lb-tab.on { border-color: #f59e0b; color: #fbbf24; background: rgba(245,158,11,.08); }
   .acc-tab.on { border-color: #f59e0b; color: #fbbf24; background: rgba(245,158,11,.08); }
   .game-tab:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
   details > summary { list-style: none; cursor: pointer; }
@@ -83,6 +84,7 @@ tailwind.config = {
       <a href="#catalog" id="navGames" class="hover:text-white transition">เติมเกม</a>
       <button type="button" id="navTopup" class="hover:text-white transition">เติมเงิน</button>
       <button type="button" id="navPartner" class="hover:text-white transition">สมัคร Partner</button>
+      <a href="#leaderboard" class="hover:text-white transition">อันดับ</a>
       <a href="#how" class="hover:text-white transition">วิธีเติม</a>
       <a href="#faq" class="hover:text-white transition">คำถามที่พบบ่อย</a>
       <a href="#contact" class="hover:text-white transition">ติดต่อเรา</a>
@@ -393,6 +395,19 @@ tailwind.config = {
   </form>
 
   <!-- How it works -->
+  <section id="leaderboard" class="mt-20 scroll-mt-24">
+    <div class="text-center">
+      <h2 class="text-2xl sm:text-3xl font-bold">🏆 <span class="grad-text">อันดับ</span></h2>
+      <p class="text-sm text-slate-400 mt-2">ใครเติมเยอะที่สุด ใครเลเวลสูงสุด</p>
+    </div>
+    <div class="max-w-3xl mx-auto mt-6 bg-panel/80 border border-line rounded-3xl p-4 sm:p-6">
+      <div id="lbBoards" class="grid grid-cols-2 gap-2"></div>
+      <div id="lbPeriods" class="mt-3 grid grid-cols-4 gap-1.5 text-xs"></div>
+      <p id="lbHint" class="mt-3 text-[11px] text-slate-500"></p>
+      <ol id="lbList" class="mt-3 space-y-2"></ol>
+    </div>
+  </section>
+
   <section id="how" class="mt-20 scroll-mt-24">
     <div class="text-center mb-8">
       <h2 class="text-2xl sm:text-3xl font-bold">เติมง่ายใน <span class="grad-text">4 ขั้นตอน</span></h2>
@@ -1211,6 +1226,49 @@ $('accLogout').addEventListener('click', async () => {
   me = null; bankInfo = null; lastBankKey = null; closeAcc(); renderAuth();
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeAcc(); });
+
+/* ===== อันดับ (Leaderboard) ===== */
+const LB_BOARDS = { spend: '💰 เติมเยอะที่สุด', level: '⭐ เลเวลสูงสุด' };
+const LB_PERIODS = { day: 'วันนี้', week: 'สัปดาห์นี้', month: 'เดือนนี้', all: 'ตลอดกาล' };
+let lbBoard = 'spend', lbPeriod = 'week', lbSeq = 0;
+function lbTabs() {
+  $('lbBoards').innerHTML = Object.entries(LB_BOARDS).map(([k, t]) => `<button type="button" data-lb-board="${k}" class="lb-tab ${k === lbBoard ? 'on' : ''} py-2.5 rounded-xl border border-line text-sm font-semibold">${t}</button>`).join('');
+  $('lbPeriods').innerHTML = Object.entries(LB_PERIODS).map(([k, t]) => `<button type="button" data-lb-period="${k}" class="lb-tab ${k === lbPeriod ? 'on' : ''} py-2 rounded-lg border border-line">${t}</button>`).join('');
+  const per = LB_PERIODS[lbPeriod];
+  $('lbHint').textContent = lbBoard === 'spend'
+    ? `ยอดเติมสะสม${lbPeriod === 'all' ? 'ตลอดกาล' : ' ' + per} (เติมเงิน + ซื้อแพ็กที่จ่ายด้วยซอง ที่แอดมินรับแล้ว)${lbPeriod === 'week' ? ' · สัปดาห์เริ่มวันจันทร์' : ''} · ตัดรอบเที่ยงคืนเวลาไทย`
+    : lbPeriod === 'all' ? 'เรียงตาม EXP สะสมทั้งหมด' : `เรียงตาม EXP ที่ได้${per} · ตัดรอบเที่ยงคืนเวลาไทย`;
+}
+async function loadLeaderboard() {
+  lbTabs();
+  const my = ++lbSeq, list = $('lbList');
+  list.innerHTML = '<li class="text-center text-slate-500 py-8 text-sm">กำลังโหลด...</li>';
+  let d = null;
+  try { d = await (await fetch(`/api/leaderboard?board=${lbBoard}&period=${lbPeriod}`, { cache: 'no-store' })).json(); } catch (e) { /* แสดงข้อความด้านล่าง */ }
+  if (my !== lbSeq) return; // ผู้ใช้กดแท็บอื่นไปแล้ว
+  if (!d || !d.success) { list.innerHTML = '<li class="text-center text-slate-500 py-8 text-sm">โหลดอันดับไม่สำเร็จ กรุณาลองใหม่</li>'; return; }
+  if (d.disabled) { list.innerHTML = '<li class="text-center text-slate-500 py-8 text-sm">ระบบเลเวลปิดใช้งานอยู่</li>'; return; }
+  if (!d.rows.length) { list.innerHTML = '<li class="text-center text-slate-500 py-8 text-sm">ยังไม่มีอันดับในช่วงนี้ เป็นคนแรกเลย!</li>'; return; }
+  const medal = ['🥇', '🥈', '🥉'], spend = d.board === 'spend', all = d.period === 'all';
+  list.innerHTML = d.rows.map(r => {
+    const main = spend ? `${fmt(r.value)} บาท` : all ? `Lv.${fmt(r.level)}` : `+${fmt(r.value)} EXP`;
+    const sub = spend ? 'ยอดเติมสะสม' : all ? `${fmt(r.value)} EXP สะสม` : `ตอนนี้ Lv.${fmt(r.level)}`;
+    return `<li class="flex items-center gap-3 rounded-2xl border ${r.isMe ? 'border-amber-400/60 bg-amber-400/5' : 'border-line bg-ink'} p-3">
+      <span class="w-8 shrink-0 text-center font-extrabold ${r.rank <= 3 ? 'text-xl' : 'text-sm text-slate-500'}">${r.rank <= 3 ? medal[r.rank - 1] : r.rank}</span>
+      ${avatarHTML(r, 'w-10 h-10')}
+      <span class="min-w-0 flex-1"><span class="block font-semibold truncate">${esc(r.name)}${r.isMe ? ' <span class="text-[10px] text-amber-300">(คุณ)</span>' : ''}</span>
+        ${spend && r.level > 0 ? `<span class="text-[10px] font-bold text-sky-300">Lv.${fmt(r.level)}</span>` : ''}</span>
+      <span class="text-right shrink-0"><span class="block font-bold ${spend ? 'text-amber-300' : 'text-sky-300'}">${main}</span><span class="block text-[11px] text-slate-500">${sub}</span></span></li>`;
+  }).join('');
+}
+$('leaderboard').addEventListener('click', e => {
+  const b = e.target.closest('[data-lb-board],[data-lb-period]');
+  if (!b) return;
+  if (b.dataset.lbBoard) lbBoard = b.dataset.lbBoard;
+  if (b.dataset.lbPeriod) lbPeriod = b.dataset.lbPeriod;
+  loadLeaderboard();
+});
+loadLeaderboard();
 
 /* ===== เลเวล / รางวัลเลเวล ===== */
 let lvData = null; // { config, info, rewards } จาก /api/level
